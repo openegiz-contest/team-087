@@ -119,6 +119,13 @@ def build():
                     '<iframe src="${console_url}" style="width:100%;height:100%;border:0;min-height:860px"></iframe>'},
     })
     y += 30
+    panels.append({
+        "id": nid(), "type": "text", "title": "3D модель шахты (вращение мышью, колесо — масштаб)",
+        "gridPos": {"x": 0, "y": y, "w": 24, "h": 20},
+        "options": {"mode": "html", "content":
+                    '<iframe src="${console_url}3d?embed=1" style="width:100%;height:100%;border:0;min-height:560px"></iframe>'},
+    })
+    y += 20
     ch4 = [s for s in S if S[s]["type"] == "CH4"]
     co = [s for s in S if S[s]["type"] == "CO"]
     panels.append(series("Метан на датчиках, %", ch4, "reading", "percent", 0, y, limits=[(1.0, "#e8b33a"), (2.0, "#e5484d")],

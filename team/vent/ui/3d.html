@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шахта «Арқа-1» в 3D</title>
+<style>
+:root{--bg:#0b1520;--panel:rgba(16,26,35,.82);--line:#2a3842;--text:#dbe4ea;--muted:#8a9aa6;--teal:#2fe8ce;--amber:#f2b234;--hot:#ff6a3d;--crit:#e5484d;--ok:#3fb27f}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.lb{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;font-size:12px;padding:2px 7px;border-radius:5px;background:rgba(8,14,20,.72);border:1px solid #2a3842;color:#c2ced6}
+.lb.name{background:none;border:0;color:#9fb2bf;font-size:12px;text-shadow:0 1px 3px #000}
+.lb.big{font-size:14px;font-weight:600;color:#ffd38a;background:none;border:0;text-shadow:0 1px 4px #000}
+.lb.sensor{font-weight:600;font-variant-numeric:tabular-nums}
+.lb.crew{background:rgba(242,178,52,.18);border-color:#f2b234;color:#ffe5a8;font-weight:700}
+.lb.crew.out{background:rgba(63,178,127,.2);border-color:#3fb27f;color:#bff0d3}
+.lb.crew.mask{background:rgba(192,132,252,.2);border-color:#c084fc;color:#ecd9ff}
+.lb.crew.down{background:rgba(229,72,77,.25);border-color:#e5484d;color:#ffd0d1}
+.lb.alarm1{border-color:var(--amber);color:#ffe2a3}
+.lb.alarm2{border-color:var(--crit);color:#ffb3b5;background:rgba(60,10,14,.8)}
+.panel{position:fixed;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;backdrop-filter:blur(6px)}
+#top{top:12px;left:12px;max-width:520px}
+#top h1{font-size:15px;margin:0 0 6px;font-weight:600}
+#kpi{top:12px;right:12px;display:grid;grid-template-columns:repeat(3,auto);gap:4px 16px;font-variant-numeric:tabular-nums}
+#kpi .l{color:var(--muted);font-size:11px}
+#kpi .v{font-size:17px;font-weight:600}
+#bar{bottom:12px;left:12px;right:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{background:#1b252e;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--teal)}
+button.on{background:var(--teal);border-color:var(--teal);color:#062019}
+button.danger{border-color:#6b2a2d;background:#2a1719}
+select{background:#1b252e;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px}
+.legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px}
+.legend .g{width:170px;height:9px;border-radius:2px}
+.alert{color:#ff8b8e;font-weight:600}
+a{color:var(--teal)}
+body.embed #bar{display:none}
+body.embed #top{max-width:380px}
+.muted{color:var(--muted)}
+@media (max-width:760px){#kpi{display:none}#top{right:12px;max-width:none}}
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.min.js", "three/addons/": "./vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="labels"></div>
+<div id="top" class="panel">
+  <h1 id="title">Шахта «Арқа-1» · 3D</h1>
+  <div id="status" class="muted">Загрузка…</div>
+  <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+    <button data-layer="ch4" class="on">Метан</button><button data-layer="co">CO</button>
+    <button data-layer="vis">Дым</button><button data-layer="air">Воздух</button>
+    <button id="lbl-btn" class="on" title="Подписи датчиков">Датчики</button>
+    <button id="rot-btn" title="Медленное вращение">⟳</button>
+  </div>
+  <div class="legend"><span id="lg-min"></span><span class="g" id="lg-bar"></span><span id="lg-max"></span></div>
+</div>
+<div id="kpi" class="panel"></div>
+<div id="bar" class="panel">
+  <b>Что если:</b>
+  <button class="danger" data-cmd='{"cmd":"fan_trip"}'>Отказ ГВУ</button>
+  <button class="danger" data-cmd='{"cmd":"methane_rise","arg":"d-l1","factor":2.0}'>Рост метана</button>
+  <button class="danger" data-cmd='{"cmd":"co_rise"}'>Рост CO</button>
+  <select id="fire-site"></select><button class="danger" id="fire-btn">Пожар</button>
+  <span style="flex:1"></span>
+  <b>Действия:</b>
+  <button data-cmd='{"cmd":"fan_start","arg":"fan-2"}'>Пуск ГВУ №2</button>
+  <button id="rev-btn">Реверс</button>
+  <button data-cmd='{"cmd":"evacuate","arg":"all"}'>Вывести всех</button>
+  <button data-cmd='{"cmd":"reset"}'>↺ Сброс</button>
+  <a href="./" style="margin-left:6px">Пульт →</a>
+</div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+const $ = (s) => document.querySelector(s);
+if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
+
+// ---- world: 1 unit = 100 m along the strike, depth exaggerated 1.6x ---------------------
+const S = 0.01, VEX = 1.6, X0 = 1500;
+const W = (x, y, z) => new THREE.Vector3((x - X0) * S, y * S * VEX, z * S);
+// The 2D layout in mine.json is a section; in 3D every panel gets its place in plan:
+// each longwall runs across (z) between its conveyor and its return drift.
+const NODES = {
+  S_in: [0, 0, 0], N1: [0, -700, 0], N2: [500, -700, 0],
+  N3: [1500, -760, -350], N4: [1500, -680, -550],
+  N5: [2000, -830, 350], N7: [2000, -760, 550],
+  N6: [2500, -620, 0], N8: [3000, -620, 0], S_out: [3000, 0, 0],
+};
+const VIA = {
+  "w-l1-conv": [[900, -730, -350]],
+  "w-l1-ret": [[2250, -650, -550], [2420, -630, -160]],
+  "w-l2-conv": [[900, -780, 350]],
+  "w-l2-ret": [[2250, -700, 550], [2420, -640, 160]],
+  "w-other": [[700, -560, 0], [2300, -560, 0]],
+};
+
+const MAPS = {
+  ch4: {stops: [[0,[47,170,150]],[0.5,[140,200,80]],[1.0,[242,190,60]],[2.0,[245,100,50]],[5.0,[230,40,70]],[8,[200,70,240]]], min: "0%", max: "≥5% взрывоопасно", vmax: 8},
+  co:  {stops: [[0,[60,120,160]],[17,[235,205,70]],[50,[245,130,50]],[200,[230,50,60]],[600,[160,20,40]]], min: "0 ppm", max: "≥200 ppm", vmax: 600},
+  vis: {stops: [[0,[40,34,30]],[2,[80,70,62]],[10,[150,140,128]],[30,[80,130,160]],[99,[60,120,160]]], min: "видимость 0 м", max: "≥30 м", vmax: 99},
+  air: {stops: [[0,[70,55,70]],[0.5,[60,90,160]],[2,[60,160,220]],[4,[120,220,245]],[8,[230,245,255]]], min: "0 м/с", max: "8 м/с", vmax: 8},
+};
+function ramp(stops, v, out){
+  let c = stops.at(-1)[1];
+  if (v <= stops[0][0]) c = stops[0][1];
+  else for (let i = 1; i < stops.length; i++) if (v <= stops[i][0]) {
+    const [v0, c0] = stops[i-1], [v1, c1] = stops[i], t = (v - v0) / (v1 - v0);
+    return out.setRGB((c0[0]+(c1[0]-c0[0])*t)/255, (c0[1]+(c1[1]-c0[1])*t)/255, (c0[2]+(c1[2]-c0[2])*t)/255, THREE.SRGBColorSpace);
+  }
+  return out.setRGB(c[0]/255, c[1]/255, c[2]/255, THREE.SRGBColorSpace);
+}
+let layer = ["ch4", "co", "vis", "air"].includes(new URLSearchParams(location.search).get("layer")) ? new URLSearchParams(location.search).get("layer") : "ch4";
+function legend(){
+  const m = MAPS[layer];
+  $("#lg-bar").style.background = `linear-gradient(90deg,${m.stops.map(([v,c]) => `rgb(${c}) ${(v/m.vmax*100).toFixed(0)}%`).join(",")})`;
+  $("#lg-min").textContent = m.min; $("#lg-max").textContent = m.max;
+}
+
+// ---- renderer, camera, light ---------------------------------------------------------------
+const canvas = $("#c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#0b1520");
+scene.fog = new THREE.FogExp2("#0b1520", 0.012);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
+camera.position.set(-15, 7, 33);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(1, -6.5, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.62;
+controls.minDistance = 4; controls.maxDistance = 70;
+controls.autoRotateSpeed = 0.35;
+scene.add(new THREE.HemisphereLight("#9fc7e0", "#1a1410", 0.9));
+const sun = new THREE.DirectionalLight("#ffffff", 1.3); sun.position.set(-10, 20, 12); scene.add(sun);
+const under = new THREE.PointLight("#2fe8ce", 30, 40, 1.6); under.position.set(0, -9, 0); scene.add(under);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.45, 0.18);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize); resize();
+
+// ---- textures from a canvas (no image files) -----------------------------------------------
+function radialTexture(stops){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  stops.forEach(([o, col]) => gr.addColorStop(o, col)); g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const smokeTex = radialTexture([[0, "rgba(215,205,195,0.95)"], [0.45, "rgba(150,140,130,0.55)"], [1, "rgba(80,75,70,0)"]]);
+const flameTex = radialTexture([[0, "rgba(255,250,210,1)"], [0.25, "rgba(255,170,60,0.95)"], [0.6, "rgba(255,70,20,0.45)"], [1, "rgba(120,0,0,0)"]]);
+const dotTex = radialTexture([[0, "rgba(255,255,255,1)"], [0.4, "rgba(255,255,255,0.5)"], [1, "rgba(255,255,255,0)"]]);
+
+// ---- ground: surface, rock block, strata, coal seam ----------------------------------------
+function buildGround(){
+  const g = new THREE.Group();
+  const xMin = -17, xMax = 17, zMin = -8, zMax = 8, depth = -14.5;
+  // surface with a faint grid
+  const surf = new THREE.Mesh(new THREE.PlaneGeometry(xMax - xMin, zMax - zMin, 60, 30),
+    new THREE.MeshStandardMaterial({ color: "#23331f", roughness: 1, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+  surf.rotation.x = -Math.PI / 2; g.add(surf);
+  const grid = new THREE.GridHelper(34, 34, "#2fe8ce", "#1c3a3a"); grid.material.transparent = true; grid.material.opacity = 0.18; grid.position.y = 0.01; g.add(grid);
+  // rock block, drawn as edges and very faint walls (a cut-away)
+  const box = new THREE.BoxGeometry(xMax - xMin, -depth, zMax - zMin);
+  box.translate(0, depth / 2, 0);
+  g.add(new THREE.Mesh(box, new THREE.MeshStandardMaterial({ color: "#3a3127", transparent: true, opacity: 0.07, depthWrite: false, side: THREE.BackSide })));
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: "#2fe8ce", transparent: true, opacity: 0.25 })));
+  // strata as thin translucent slabs
+  [[-2.2, "#4a3d2c"], [-5.0, "#3a3a33"], [-8.4, "#2f2a24"], [-12.8, "#3a332a"]].forEach(([y, c]) => {
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(xMax - xMin, zMax - zMin), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
+    s.rotation.x = -Math.PI / 2; s.position.y = y; g.add(s);
+  });
+  // the coal seam the longwalls work: a dark slab dipping to the north-east
+  const seam = new THREE.Mesh(new THREE.BoxGeometry(17, 0.12, 13), new THREE.MeshStandardMaterial({ color: "#151210", roughness: 0.9, transparent: true, opacity: 0.55, depthWrite: false }));
+  seam.position.set(2.5, -11.8, 0); seam.rotation.set(0, 0, -0.045); seam.rotation.x = 0.07; g.add(seam);
+  scene.add(g);
+}
+
+// ---- surface buildings: headframe and fan house ---------------------------------------------
+const fans3d = [];
+function buildSurface(){
+  const steel = new THREE.MeshStandardMaterial({ color: "#8a9aa6", metalness: 0.6, roughness: 0.4 });
+  const hf = new THREE.Group(); const p = W(...NODES.S_in);
+  [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].forEach(([x, z]) => {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.6), steel);
+    leg.position.set(x * 0.7, 1.25, z * 0.7); leg.rotation.z = -x * 0.25; leg.rotation.x = z * 0.25; hf.add(leg); });
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.05, 8, 24), steel); wheel.position.y = 2.6; hf.add(wheel);
+  const hoist = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 1.0), new THREE.MeshStandardMaterial({ color: "#2b3a45" }));
+  hoist.position.set(-1.1, 0.3, 0); hf.add(hoist);
+  hf.position.copy(p); scene.add(hf);
+  const fh = new THREE.Group(); const q = W(...NODES.S_out);
+  const house = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.8, 2.2), new THREE.MeshStandardMaterial({ color: "#1d2a33", roughness: 0.7 }));
+  house.position.set(0.9, 0.4, 0); fh.add(house);
+  const diff = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 1.4, 16), steel); diff.position.set(0.2, 0.9, 0); fh.add(diff);
+  [-0.55, 0.55].forEach((z, i) => {
+    const hub = new THREE.Group(); hub.position.set(1.72, 0.42, z);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.035, 8, 28), new THREE.MeshStandardMaterial({ color: "#2fe8ce", emissive: "#2fe8ce", emissiveIntensity: 0.6 }));
+    ring.rotation.y = Math.PI / 2; hub.add(ring);
+    const rotor = new THREE.Group();
+    for (let k = 0; k < 6; k++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.24, 0.07), steel); b.position.y = 0.13; const arm = new THREE.Group(); arm.add(b); arm.rotation.x = k * Math.PI / 3; rotor.add(arm); }
+    hub.add(rotor); fh.add(hub); fans3d.push({ ring, rotor, speed: 0 });
+  });
+  fh.position.copy(q); scene.add(fh);
+}
+
+// ---- workings: one glowing cylinder per 50 m cell ------------------------------------------
+const branches = {};  // id -> {cells:[mesh], pts:[Vector3], cum, len, data}
+function polyAt(b, f){
+  const d = Math.max(0, Math.min(1, f)) * b.len;
+  for (let i = 1; i < b.pts.length; i++) if (d <= b.cum[i] || i === b.pts.length - 1) {
+    const t = (d - b.cum[i-1]) / Math.max(1e-6, b.cum[i] - b.cum[i-1]);
+    return new THREE.Vector3().lerpVectors(b.pts[i-1], b.pts[i], t);
+  }
+}
+const UP = new THREE.Vector3(0, 1, 0);
+function cylinderBetween(a, c, r, mat){
+  const dir = new THREE.Vector3().subVectors(c, a), len = dir.length();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len * 1.02, 10, 1, true), mat);
+  m.position.copy(a).addScaledVector(dir, 0.5);
+  m.quaternion.setFromUnitVectors(UP, dir.normalize());
+  return m;
+}
+function buildWorkings(L){
+  L.branches.forEach((b) => {
+    const pts = [W(...NODES[b.from]), ...(VIA[b.id] || []).map((p) => W(...p)), W(...NODES[b.to])];
+    const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + pts[i].distanceTo(pts[i-1]));
+    const br = branches[b.id] = { id: b.id, name: b.name, kind: b.kind, length: b.length, pts, cum, len: cum.at(-1), cells: [] };
+    const n = Math.max(2, Math.round(b.length / 50));
+    const r = b.kind === "shaft" ? 0.2 : b.kind === "longwall" ? 0.16 : b.kind === "leak" ? 0.07 : 0.11;
+    for (let i = 0; i < n; i++) {
+      const mat = new THREE.MeshStandardMaterial({ color: "#2f8a7a", emissive: "#2f8a7a", emissiveIntensity: 0.55, roughness: 0.45, metalness: 0.1, transparent: b.kind === "shaft", opacity: b.kind === "shaft" ? 0.85 : 1 });
+      const m = cylinderBetween(polyAt(br, i / n), polyAt(br, (i + 1) / n), r, mat);
+      scene.add(m); br.cells.push(m);
+    }
+    // joints so polylines look continuous
+    pts.forEach((p) => { const s = new THREE.Mesh(new THREE.SphereGeometry(r * 1.05, 10, 8), new THREE.MeshStandardMaterial({ color: "#1b2a33", roughness: 0.6 })); s.position.copy(p); scene.add(s); });
+    // longwall: a row of powered roof supports along the face
+    if (b.kind === "longwall") {
+      const shield = new THREE.MeshStandardMaterial({ color: "#f2b234", metalness: 0.5, roughness: 0.4, emissive: "#3a2600" });
+      const k = 14, geo = new THREE.BoxGeometry(0.16, 0.05, 0.1);
+      const inst = new THREE.InstancedMesh(geo, shield, k), mtx = new THREE.Matrix4();
+      for (let i = 0; i < k; i++) { const p = polyAt(br, (i + 0.5) / k); mtx.makeTranslation(p.x - 0.22, p.y + 0.12, p.z); inst.setMatrixAt(i, mtx); }
+      scene.add(inst);
+    }
+  });
+}
+
+// ---- moving air: points travelling along each working --------------------------------------
+const flowPts = [];
+let flowMesh;
+function buildFlow(){
+  const list = Object.values(branches);
+  list.forEach((b) => { const n = Math.max(3, Math.round(b.length / 70)); for (let i = 0; i < n; i++) flowPts.push({ b, u: i / n + Math.random() / n }); });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(flowPts.length * 3), 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(flowPts.length * 3), 3));
+  flowMesh = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.22, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  scene.add(flowMesh);
+}
+
+// ---- smoke puffs, fire, crews, sensors, labels ---------------------------------------------
+const puffs = [];
+function buildSmoke(){
+  Object.values(branches).forEach((b) => b.cells.forEach((cell, i) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0 }));
+    sp.position.copy(cell.position); sp.visible = false; scene.add(sp);
+    puffs.push({ b, i, sp, seed: Math.random() * 10 });
+  }));
+}
+const fire = { sprite: new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })),
+               light: new THREE.PointLight("#ff6a3d", 0, 8, 1.5) };
+scene.add(fire.sprite, fire.light); fire.sprite.visible = false;
+
+const crews3d = {};
+function buildCrews(L){
+  const geo = new THREE.CapsuleGeometry(0.05, 0.12, 4, 8);
+  L.crews.forEach((c) => {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: "#f2b234", emissive: "#f2b234", emissiveIntensity: 0.7 });
+    for (let k = 0; k < 3; k++) { const m = new THREE.Mesh(geo, mat); m.position.set((k - 1) * 0.12, 0.2, (k % 2) * 0.08); g.add(m); }
+    scene.add(g); crews3d[c.id] = { g, mat, label: label("crew", "") };
+  });
+}
+const labelsEl = $("#labels"), pinned = [];
+function label(cls, text){ const d = document.createElement("div"); d.className = "lb " + cls; d.textContent = text; labelsEl.appendChild(d); return d; }
+function pin(el, pos){ pinned.push({ el, pos }); return el; }
+let showSensors = true;
+const sensors3d = {};
+function buildLabels(L){
+  const at = (id, f) => polyAt(branches[id], f);
+  pin(label("big", "Лава 1-Ю"), at("w-l1-face", 0.5).add(new THREE.Vector3(0, 0.55, 0)));
+  pin(label("big", "Лава 2-С"), at("w-l2-face", 0.5).add(new THREE.Vector3(0, 0.55, 0)));
+  pin(label("name", "Клетевой ствол · свежий воздух"), W(0, -150, 0).add(new THREE.Vector3(-0.4, 0, 0)));
+  pin(label("name", "Вентиляционный ствол · ГВУ"), W(3000, -150, 0).add(new THREE.Vector3(0.4, 0, 0)));
+  pin(label("name", "Главные откаточные штреки"), at("w-main", 0.5).add(new THREE.Vector3(0, 0.35, 0)));
+  pin(label("name", "Главный вентиляционный штрек"), at("w-ret-main", 0.5).add(new THREE.Vector3(0, 0.35, 0)));
+  pin(label("name", "Подготовительные забои"), at("w-other", 0.5).add(new THREE.Vector3(0, 0.3, 0)));
+  const fanLabel = pin(label("", "ГВУ"), W(3000, 0, 0).add(new THREE.Vector3(1.4, 1.6, 0)));
+  sensors3d.fan = fanLabel;
+  const mk = new THREE.MeshStandardMaterial({ color: "#dbe4ea", emissive: "#dbe4ea", emissiveIntensity: 0.4 });
+  L.sensors.forEach((s) => {
+    const p = at(s.branch, s.pos);
+    const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.07), mk.clone()); m.position.copy(p).add(new THREE.Vector3(0, 0.2, 0)); scene.add(m);
+    sensors3d[s.id] = { m, type: s.type, el: pin(label("sensor", ""), p.clone().add(new THREE.Vector3(0, 0.32, 0))) };
+    sensors3d[s.id].el.title = s.name;
+  });
+}
+
+// ---- state -> scene ---------------------------------------------------------------------------
+let L = null, St = null;
+const tmpC = new THREE.Color();
+function apply(){
+  if (!St) return;
+  St.branches.forEach((b) => {
+    const br = branches[b.id]; br.data = b;
+    br.cells.forEach((m, i) => {
+      const v = layer === "ch4" ? b.ch4[i] : layer === "co" ? b.co[i] : layer === "vis" ? b.vis[i] : Math.abs(b.v);
+      ramp(MAPS[layer].stops, v, tmpC); m.material.color.copy(tmpC); m.material.emissive.copy(tmpC);
+      m.material.emissiveIntensity = layer === "ch4" && b.ch4[i] >= 2 ? 1.6 : layer === "co" && b.co[i] >= 50 ? 1.4 : 0.55;
+    });
+  });
+  St.fans.forEach((f, i) => { const o = fans3d[i]; o.speed = f.speed * (St.fan_mode === "реверс" ? -1 : 1);
+    const col = f.failed ? "#e5484d" : f.speed > 0.5 ? "#2fe8ce" : "#5b6b76"; o.ring.material.color.set(col); o.ring.material.emissive.set(col); });
+  sensors3d.fan.textContent = `ГВУ: ${St.fans.map((f) => `№${f.id.slice(-1)} ${f.state}`).join(" · ")} · ${St.fan_mode}`;
+  sensors3d.fan.className = "lb " + (St.fans.some((f) => f.failed) ? "alarm2" : St.fan_mode === "реверс" ? "alarm1" : "");
+  St.sensors.forEach((s) => { const o = sensors3d[s.id]; const v = s.value;
+    let a = 0, txt;
+    if (o.type === "CH4") { txt = v.toFixed(2) + "% CH₄"; a = v >= 1 ? 2 : v >= 0.8 ? 1 : 0; }
+    else if (o.type === "CO") { txt = Math.round(v) + " ppm CO"; a = v >= 50 ? 2 : v >= 17 ? 1 : 0; }
+    else { txt = v.toFixed(1) + " м/с"; a = v < 0.5 ? 2 : 0; }
+    o.el.textContent = txt; o.el.className = `lb sensor alarm${a}`; o.el.style.display = showSensors ? "" : "none";
+    const col = a === 2 ? "#e5484d" : a === 1 ? "#f2b234" : "#dbe4ea"; o.m.material.color.set(col); o.m.material.emissive.set(col); });
+  St.crews.forEach((c) => { const o = crews3d[c.id]; const br = branches[c.branch];
+    const p = polyAt(br, c.s / br.length); o.g.position.copy(p); o.g.visible = c.status !== "на поверхности";
+    const down = c.status.startsWith("потеряли"), out = c.status === "выходят" || c.status === "в клети";
+    const col = down ? "#e5484d" : c.rescuer_on ? "#c084fc" : out ? "#3fb27f" : "#f2b234";
+    o.mat.color.set(col); o.mat.emissive.set(col);
+    o.label.textContent = `${c.people} чел. · ${c.status}`; o.label.className = "lb crew " + (down ? "down" : c.rescuer_on ? "mask" : out ? "out" : "");
+    o.label.style.display = o.g.visible ? "" : "none"; o.pos = p.clone().add(new THREE.Vector3(0, 0.95, 0)); });
+  if (St.fire && !St.fire.out && St.fire.hrr_mw > 0.01) {
+    const fs = L.fire_sites[St.fire.site]; const p = polyAt(branches[fs.branch], fs.pos);
+    fire.sprite.position.copy(p); fire.light.position.copy(p).add(new THREE.Vector3(0, 0.3, 0)); fire.sprite.visible = true; fire.hrr = St.fire.hrr_mw;
+  } else { fire.sprite.visible = false; fire.light.intensity = 0; fire.hrr = 0; }
+  // KPIs
+  const lvl = Math.max(0, ...St.alerts.map((a) => a.level === "crit" ? 2 : a.level === "warn" ? 1 : 0));
+  const k = (l, v, c) => `<div><div class="l">${l}</div><div class="v" style="color:${c || "inherit"}">${v}</div></div>`;
+  const sm = St.summary;
+  $("#kpi").innerHTML = k("Воздух", Math.round(Math.abs(St.fan_station.Q) * 60).toLocaleString("ru") + " м³/мин", Math.abs(St.fan_station.Q) < 100 ? "#ff8b8e" : "")
+    + k("CH₄ макс.", sm.max_ch4.toFixed(2) + " %", sm.max_ch4 >= 5 ? "#d070ff" : sm.max_ch4 >= 2 ? "#ff8b8e" : sm.max_ch4 >= 1 ? "#f0cb6b" : "")
+    + k("CO макс.", Math.round(sm.max_co) + " ppm", sm.max_co >= 50 ? "#ff8b8e" : sm.max_co >= 17 ? "#f0cb6b" : "")
+    + k("Под землёй", sm.people_underground + " чел.") + k("В опасности", sm.people_at_risk + " чел.", sm.people_at_risk ? "#ff8b8e" : "")
+    + k("Время модели", `${Math.floor(St.t / 3600)}:${String(Math.floor(St.t / 60) % 60).padStart(2, "0")}`);
+  const top = St.alerts[0];
+  $("#status").innerHTML = `Сценарий: <b>${St.scenario}</b> · ${lvl === 2 ? '<span class="alert">Авария</span>' : lvl === 1 ? "Внимание" : "Норма"}`
+    + (top ? `<br><span class="${top.level === "crit" ? "alert" : ""}">${top.text}</span>` : "")
+    + (St.forecast ? `<br>Советник: <b style="color:#7fd6a8">${St.forecast.best_name}</b>` : "");
+  $("#rev-btn").textContent = St.mode_target === "реверс" ? "Нормальный режим" : "Реверс";
+  $("#rev-btn").dataset.cmd = JSON.stringify({ cmd: St.mode_target === "реверс" ? "fan_normal" : "fan_reverse" });
+}
+
+// ---- animation loop --------------------------------------------------------------------------
+const clock = new THREE.Clock();
+const proj = new THREE.Vector3();
+function tick(){
+  const dt = Math.min(0.1, clock.getDelta()), t = clock.elapsedTime;
+  controls.update();
+  fans3d.forEach((f) => (f.rotor.rotation.x += f.speed * 9 * dt));
+  if (flowMesh && St) {
+    const pos = flowMesh.geometry.attributes.position.array, col = flowMesh.geometry.attributes.color.array;
+    flowPts.forEach((p, i) => {
+      const d = p.b.data; const v = d ? d.v : 0;
+      p.u += v * 12 * dt / p.b.length; p.u -= Math.floor(p.u);
+      const q = polyAt(p.b, p.u); pos[i*3] = q.x; pos[i*3+1] = q.y; pos[i*3+2] = q.z;
+      const cell = d ? Math.min(d.vis.length - 1, Math.floor(p.u * d.vis.length)) : 0;
+      const dim = Math.abs(v) < 0.05 ? 0 : Math.min(1, 0.35 + Math.abs(v) / 3);
+      const grey = d && d.vis[cell] < 10;
+      col[i*3] = (grey ? 0.55 : 0.75) * dim; col[i*3+1] = (grey ? 0.5 : 1.0) * dim; col[i*3+2] = (grey ? 0.45 : 0.95) * dim;
+    });
+    flowMesh.geometry.attributes.position.needsUpdate = true; flowMesh.geometry.attributes.color.needsUpdate = true;
+  }
+  if (St) puffs.forEach((p) => {
+    const d = p.b.data; const vis = d ? d.vis[p.i] : 99;
+    const on = vis < 25; p.sp.visible = on;
+    if (on) { const k = Math.min(1, (25 - vis) / 22); const s = 0.55 + 1.3 * k + 0.1 * Math.sin(t * 0.9 + p.seed);
+      p.sp.scale.set(s, s, s); p.sp.material.opacity = 0.3 + 0.55 * k; p.sp.position.y = p.b.cells[p.i].position.y + 0.12 + 0.05 * Math.sin(t * 0.6 + p.seed); }
+  });
+  if (fire.sprite.visible) { const f = 0.6 + 0.25 * Math.sin(t * 13) + 0.15 * Math.sin(t * 29);
+    const s = 0.5 + fire.hrr / 5 * 1.1; fire.sprite.scale.set(s * (0.9 + 0.1 * f), s * (1 + 0.2 * f), 1); fire.light.intensity = 12 + fire.hrr * 10 * f; }
+  under.intensity = 26 + 4 * Math.sin(t * 0.7);
+  composer.render();
+  // pinned HTML labels follow their 3D points
+  const w = innerWidth, h = innerHeight;
+  const place = (el, pos) => { if (!pos || el.style.display === "none") return; proj.copy(pos).project(camera);
+    const vis = proj.z < 1 && Math.abs(proj.x) < 1.1 && Math.abs(proj.y) < 1.1;
+    el.style.visibility = vis ? "visible" : "hidden";
+    if (vis) el.style.transform = `translate(-50%,-100%) translate(${(proj.x * 0.5 + 0.5) * w}px,${(-proj.y * 0.5 + 0.5) * h}px)`, el.style.left = el.style.top = "0"; };
+  pinned.forEach((p) => place(p.el, p.pos));
+  Object.values(crews3d).forEach((c) => place(c.label, c.pos));
+  requestAnimationFrame(tick);
+}
+
+// ---- API ------------------------------------------------------------------------------------
+async function cmd(c){ await fetch("api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) }); poll(); }
+async function poll(){ try { St = await (await fetch("api/state")).json(); apply(); } catch (e) { $("#status").textContent = "Нет связи с двойником"; } }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cmd]"); if (b) return cmd(JSON.parse(b.dataset.cmd));
+  const l = e.target.closest("[data-layer]"); if (l) { layer = l.dataset.layer; document.querySelectorAll("[data-layer]").forEach((x) => x.classList.toggle("on", x === l)); legend(); apply(); }
+});
+$("#fire-btn").onclick = () => cmd({ cmd: "fire", arg: $("#fire-site").value });
+$("#lbl-btn").onclick = () => { showSensors = !showSensors; $("#lbl-btn").classList.toggle("on", showSensors); apply(); };
+$("#rot-btn").onclick = () => { controls.autoRotate = !controls.autoRotate; $("#rot-btn").classList.toggle("on", controls.autoRotate); };
+controls.addEventListener("start", () => { controls.autoRotate = false; $("#rot-btn").classList.remove("on"); });
+
+L = await (await fetch("api/layout")).json();
+$("#title").textContent = L.mine.name + " · 3D";
+$("#fire-site").innerHTML = Object.entries(L.fire_sites).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("");
+document.querySelectorAll("[data-layer]").forEach((x) => x.classList.toggle("on", x.dataset.layer === layer));
+buildGround(); buildSurface(); buildWorkings(L); buildFlow(); buildSmoke(); buildCrews(L); buildLabels(L); legend();
+await poll(); setInterval(poll, 1000);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

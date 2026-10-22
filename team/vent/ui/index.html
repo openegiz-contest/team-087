@@ -86,7 +86,8 @@ input[type=range]{width:120px}
   </div>
   <div class="card">
     <div class="tabs">
-      <b style="margin-right:6px">Разрез шахты</b>
+      <button id="v2d" class="on">Разрез 2D</button><button id="v3d">3D модель</button>
+      <span style="width:10px"></span>
       <button data-layer="ch4" class="on">Метан</button>
       <button data-layer="co">CO</button>
       <button data-layer="vis">Дым</button>
@@ -95,6 +96,7 @@ input[type=range]{width:120px}
       <span class="legend"><span id="lg-min"></span><span class="bar" id="lg-bar"></span><span id="lg-max"></span></span>
     </div>
     <svg id="scene" viewBox="-220 -130 3480 1140" preserveAspectRatio="xMidYMid meet"></svg>
+    <iframe id="scene3d" title="3D модель шахты" style="display:none;width:100%;height:620px;border:0;border-radius:6px;background:#0b1520"></iframe>
     <div class="muted" style="margin-top:6px">Разрез не в масштабе по глубине. Стрелки — направление и скорость воздуха; цифры у датчиков — их показания; человечки — бригады (цифра — число людей).</div>
   </div>
   <div class="charts">
@@ -474,6 +476,14 @@ document.addEventListener("click", e => {
     document.querySelectorAll("[data-layer]").forEach(x => x.classList.toggle("on", x === l)); legend(); render(); }
 });
 $("#fire-btn").onclick = () => cmd({cmd:"fire", arg: $("#fire-site").value});
+function view(three){
+  $("#scene").style.display = three ? "none" : ""; $("#scene3d").style.display = three ? "" : "none";
+  document.querySelectorAll("[data-layer]").forEach(x => x.style.display = three ? "none" : "");
+  $(".legend").style.display = three ? "none" : "";
+  if (three && !$("#scene3d").src) $("#scene3d").src = "3d?embed=1";
+  $("#v2d").classList.toggle("on", !three); $("#v3d").classList.toggle("on", three);
+}
+$("#v2d").onclick = () => view(false); $("#v3d").onclick = () => view(true);
 $("#pause").onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify({paused: !S.paused})}).then(poll);
 [1, 10, 30, 60].forEach(s => { const b = document.createElement("button"); b.textContent = "×" + s; b.dataset.s = s;
   b.onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify({speed:s})}).then(poll); $("#speeds").appendChild(b); });

@@ -407,6 +407,10 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
             self._send(200, open(os.path.join(HERE, "ui", "index.html"), "rb").read(), "text/html; charset=utf-8")
+        elif path in ("/3d", "/3d.html"):
+            self._send(200, open(os.path.join(HERE, "ui", "3d.html"), "rb").read(), "text/html; charset=utf-8")
+        elif path.startswith("/vendor/") or path.endswith(".js"):
+            self._static(path)
         elif path == "/api/layout":
             self._send(200, layout())
         elif path == "/api/state":
@@ -424,6 +428,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "t": TWIN.model.t})
         else:
             self._send(404, {"error": "not found"})
+
+    def _static(self, path):
+        """Files under ui/ (three.js and the 3D scene), never outside it."""
+        root = os.path.realpath(os.path.join(HERE, "ui"))
+        full = os.path.realpath(os.path.join(root, path.lstrip("/")))
+        if not full.startswith(root + os.sep) or not os.path.isfile(full):
+            return self._send(404, {"error": "not found"})
+        ctype = {".js": "text/javascript; charset=utf-8", ".html": "text/html; charset=utf-8",
+                 ".png": "image/png"}.get(os.path.splitext(full)[1], "application/octet-stream")
+        self._send(200, open(full, "rb").read(), ctype)
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)

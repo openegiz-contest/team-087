@@ -16,6 +16,7 @@ mine.json ─▶ model.py (сеть, газ, пожар, люди) ─▶ simula
 | `simulator.py` | Сервис: модель в ускоренном времени, публикация 35 двойников, приём команд через двойник `dispatch`, HTTP API и пульт |
 | `setup_twins.py` | Создание двойников в Ditto с иерархией `_parents` |
 | `ui/index.html` | Пульт диспетчера: разрез, сценарии, управление, советник, графики |
+| `ui/3d.html`, `ui/vendor/three/` | 3D-модель на three.js r170 (MIT, лежит в репозитории): `http://localhost:8095/3d`, параметры `?embed=1`, `?layer=ch4\|co\|vis\|air` |
 | `grafana/` | Дашборд и генератор `make_dashboard.py` |
 | `data/` | Неделя реальных данных метана, CC BY 4.0 |
 | `test_model.py` | 13 тестов физики и советника (`make mine-test`) |
