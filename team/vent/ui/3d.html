@@ -65,6 +65,8 @@ body.embed #top{max-width:380px}
   <button class="danger" data-cmd='{"cmd":"fan_trip"}'>Отказ ГВУ</button>
   <button class="danger" data-cmd='{"cmd":"methane_rise","arg":"d-l1","factor":2.0}'>Рост метана</button>
   <button class="danger" data-cmd='{"cmd":"co_rise"}'>Рост CO</button>
+  <button class="danger" data-cmd='{"cmd":"vmp_trip"}'>Отказ ВМП</button>
+  <button class="danger" data-cmd='{"cmd":"degas_fail"}'>Отказ дегазации</button>
   <select id="fire-site"></select><button class="danger" id="fire-btn">Пожар</button>
   <span style="flex:1"></span>
   <b>Действия:</b>
@@ -96,13 +98,17 @@ const NODES = {
   N3: [1500, -760, -350], N4: [1500, -680, -550],
   N5: [2000, -830, 350], N7: [2000, -760, 550],
   N6: [2500, -620, 0], N8: [3000, -620, 0], S_out: [3000, 0, 0],
+  N10: [1150, -560, 0], N9: [1150, -600, -650],
 };
 const VIA = {
   "w-l1-conv": [[900, -730, -350]],
   "w-l1-ret": [[2250, -650, -550], [2420, -630, -160]],
   "w-l2-conv": [[900, -780, 350]],
   "w-l2-ret": [[2250, -700, 550], [2420, -640, 160]],
-  "w-other": [[700, -560, 0], [2300, -560, 0]],
+  "w-other-a": [[700, -560, 0]],
+  "w-other-b": [[2300, -560, 0]],
+  "w-dev": [[1150, -585, -300]],
+  "w-dev-duct": [[560, -690, -40], [1050, -575, -40], [1080, -590, -620]],
 };
 
 const MAPS = {
@@ -247,7 +253,7 @@ function buildWorkings(L){
     const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + pts[i].distanceTo(pts[i-1]));
     const br = branches[b.id] = { id: b.id, name: b.name, kind: b.kind, length: b.length, pts, cum, len: cum.at(-1), cells: [] };
     const n = Math.max(2, Math.round(b.length / 50));
-    const r = b.kind === "shaft" ? 0.2 : b.kind === "longwall" ? 0.16 : b.kind === "leak" ? 0.07 : 0.11;
+    const r = b.kind === "shaft" ? 0.2 : b.kind === "longwall" ? 0.16 : b.kind === "leak" ? 0.07 : b.kind === "duct" ? 0.045 : 0.11;
     for (let i = 0; i < n; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: "#2f8a7a", emissive: "#2f8a7a", emissiveIntensity: 0.55, roughness: 0.45, metalness: 0.1, transparent: b.kind === "shaft", opacity: b.kind === "shaft" ? 0.85 : 1 });
       const m = cylinderBetween(polyAt(br, i / n), polyAt(br, (i + 1) / n), r, mat);
@@ -315,7 +321,9 @@ function buildLabels(L){
   pin(label("name", "Вентиляционный ствол · ГВУ"), W(3000, -150, 0).add(new THREE.Vector3(0.4, 0, 0)));
   pin(label("name", "Главные откаточные штреки"), at("w-main", 0.5).add(new THREE.Vector3(0, 0.35, 0)));
   pin(label("name", "Главный вентиляционный штрек"), at("w-ret-main", 0.5).add(new THREE.Vector3(0, 0.35, 0)));
-  pin(label("name", "Подготовительные забои"), at("w-other", 0.5).add(new THREE.Vector3(0, 0.3, 0)));
+  pin(label("name", "Камеры и прочие выработки"), at("w-other-b", 0.5).add(new THREE.Vector3(0, 0.3, 0)));
+  pin(label("big", "Штрек 3-Ю · проходка"), at("w-dev", 0.15).add(new THREE.Vector3(0, 0.5, 0)));
+  pin(label("name", "ВМП и трубопровод"), at("w-dev-duct", 0.15).add(new THREE.Vector3(0, 0.35, 0)));
   const fanLabel = pin(label("", "ГВУ"), W(3000, 0, 0).add(new THREE.Vector3(1.4, 1.6, 0)));
   sensors3d.fan = fanLabel;
   const mk = new THREE.MeshStandardMaterial({ color: "#dbe4ea", emissive: "#dbe4ea", emissiveIntensity: 0.4 });

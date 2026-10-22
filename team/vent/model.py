@@ -30,6 +30,10 @@ import math
 import random
 
 RHO_CP = 1.2 * 1005.0  # J/(m3 K), air
+RHO_AIR = 1.2          # kg/m3
+T_AIR = 293.0          # K, mine air before a fire
+G = 9.81
+CH4_BUOYANCY = 0.445   # (rho_air - rho_CH4) / rho_air
 CO_DENSITY = 1.165     # kg/m3
 SURFACE = "SURF"
 
@@ -44,6 +48,7 @@ class Fan:
         self.power_rated = cfg["power_rated_kw"]
         self.eff = cfg.get("efficiency", 0.75)
         self.role = cfg.get("role", "main")
+        self.branch = cfg.get("branch")  # local fans (ВМП) sit in a duct branch
         self.speed = 1.0 if cfg.get("state") == "running" else 0.0
         self.target = self.speed
         self.failed = False
@@ -167,6 +172,18 @@ class Model:
         self.fan_stop_since = None
         self.q_normal = None
 
+        # --- local fans (ВМП) of the dead-end heading -------------------------
+        lf = cfg.get("local_fans") or {"units": []}
+        self.local_fans = [Fan(u) for u in lf["units"]]
+        self.lf_start = lf.get("start_time_s", 20)
+        self.lf_rundown = lf.get("stop_rundown_s", 15)
+        self.lf_stopped_R = lf.get("stopped_extra_R", 3000)
+
+        # --- degassing of the goafs ---------------------------------------------
+        self.degas = cfg.get("degassing") or {"branches": {}}
+        self.degas_on = 1.0         # share of the design capture, 0 when the pumps stop
+        self.degas_target = 1.0
+
         # --- districts, power ----------------------------------------------
         self.districts = {d: {"name": v["name"], "power": True, "power_reason": ""}
                           for d, v in cfg["districts"].items()}
@@ -208,6 +225,7 @@ class Model:
         m = copy.copy(self)
         m.branches = copy.deepcopy(self.branches)
         m.fans = copy.deepcopy(self.fans)
+        m.local_fans = copy.deepcopy(self.local_fans)
         m.districts = copy.deepcopy(self.districts)
         m.ch4_mult = dict(self.ch4_mult)
         m.ch4_mult_target = dict(self.ch4_mult_target)
@@ -289,6 +307,10 @@ class Model:
         if b["id"] == self.fan_branch:
             s = max((fan.speed for fan in self.fans), default=0.0)
             R += self.stopped_extra_R * (1.0 - s) ** 2
+        lfs = [f for f in self.local_fans if f.branch == b["id"]]
+        if lfs:
+            s = max(f.speed for f in lfs)
+            R += self.lf_stopped_R * (1.0 - s) ** 2
         if self.fire and self.fire.branch == b["id"]:
             # Throttling by the hot gases: the working's resistance grows with the fire.
             R += b["R"] * self.phys["fire"]["throttle_factor"] * self.fire.hrr / (self.phys["fire"]["hrr_max_mw"] * 1e6)
@@ -297,6 +319,7 @@ class Model:
     def solve_air(self):
         nat = self.cfg["mine"].get("natural_draft_pa", 0.0)
         Rs = [self._branch_R(b) for b in self.branches]
+        buoy = [self._buoyancy(b) for b in self.branches]
         m = list(self.mesh_flow)
         k = len(self.meshes)
         for _ in range(60):
@@ -314,6 +337,9 @@ class Model:
                     h, dh = self._fan_head(Q[i])
                     r -= h + nat
                     d -= dh
+                h, dh = self._local_head(b["id"], Q[i])
+                r -= h + buoy[i]
+                d -= dh
                 res[i], dF[i] = r, d
             J = [[0.0] * k for _ in range(k)]
             for j, mesh in enumerate(self.meshes):
@@ -335,6 +361,12 @@ class Model:
         for i, b in enumerate(self.branches):
             b["Q"] = Q[i]
             b["R_eff"] = Rs[i]
+            b["buoyancy"] = buoy[i]
+        for fan in self.local_fans:
+            q = self.br(fan.branch)["Q"]
+            on = fan.speed > 0.5
+            fan.flow = max(0.0, q) if on else 0.0
+            fan.pressure = max(0.0, fan.speed ** 2 * fan.h0 - fan.h2 * q * q) if on else 0.0
         qf = self.br(self.fan_branch)["Q"]
         h, _ = self._fan_head(qf)
         for fan in self.fans:
@@ -351,6 +383,66 @@ class Model:
         for x, s in zip(self.fans, saved):
             x.speed = s
         return h
+
+    def _local_head(self, bid, Q):
+        """Head of the strongest running local fan in a duct branch."""
+        best, dbest = 0.0, 0.0
+        for fan in self.local_fans:
+            if fan.branch != bid or fan.speed <= 0.001:
+                continue
+            h = fan.speed ** 2 * fan.h0 - (fan.h2 * Q * Q if Q > 0 else 0.0)
+            if h > best:
+                best, dbest = h, (-2 * fan.h2 * Q if Q > 0 else 0.0)
+        return best, dbest
+
+    def _buoyancy(self, b):
+        """Thermal depression of fire gases, Pa, acting from -> to.
+
+        Hot gases in a working that rises from its 'from' to its 'to' end pull
+        the air upwards: rho*g*dz*dT/(T+dT). This is how a fire in an inclined
+        working can stop or reverse the air: Kirchhoff's second law gains a
+        source term (McPherson, Subsurface Ventilation Engineering, ch. 21).
+        """
+        dT = sum(b["heat"]) / b["n"]
+        if dT < 0.05:
+            return 0.0
+        dz = self.node_cfg[b["to"]]["y"] - self.node_cfg[b["from"]]["y"]  # rise from 'from' to 'to'
+        return RHO_AIR * G * dz * dT / (T_AIR + dT)
+
+    def layering_number(self, b):
+        """Bakke-Leach layering number of methane at the roof; None without a source.
+
+        L = u / (g * (drho/rho) * q / W)^(1/3), q - methane inflow m3/s, W - width m
+        (area over a 3 m height). Below about 2.5 methane forms a roof layer.
+        """
+        q = self._ch4_rate(b)
+        if b["kind"] == "heading":
+            q *= 0.2  # face gas is mixed by the duct jet; only the ribs' inflow layers
+        if q <= 0:
+            return None
+        W = b["area"] / 3.0
+        u = abs(b["Q"]) / b["area"]
+        return u / (G * CH4_BUOYANCY * q / W) ** (1.0 / 3.0)
+
+    def _ch4_rate(self, b):
+        """Methane inflow into a working, m3/s."""
+        rate = 0.0
+        d = b["district"]
+        g = b.get("ch4_m3min", 0.0)
+        if g:
+            share = b.get("ch4_cutting_share", 0.0)
+            cutting = 1.0 if self.districts[d]["power"] else 0.0
+            rate += g / 60.0 * ((1 - share) + share * cutting) * self.ch4_mult[d] * self._profile_factor()
+        dg = self.degas["branches"].get(b["id"])
+        if dg:
+            to_air = dg["goaf_total_m3min"] * (1.0 - dg["efficiency"] * self.degas_on)
+            rate += to_air / 60.0 * self.ch4_mult[d] * self._profile_factor()
+        return rate
+
+    def degas_captured(self):
+        """Methane drawn off by the degassing pumps, m3/min."""
+        return sum(v["goaf_total_m3min"] * v["efficiency"] * self.degas_on * self.ch4_mult[self.br(bid)["district"]]
+                   * self._profile_factor() for bid, v in self.degas["branches"].items())
 
     # ---------------------------------------------------------- transport
     def _node_values(self):
@@ -379,23 +471,22 @@ class Model:
     def _sources(self, dt_total):
         """Per-branch per-cell sources: (ch4 m3/s, co m3/s, smoke kg/s, heat W)."""
         src = {}
-        f_prof = self._profile_factor()
         for b in self.branches:
-            g = b.get("ch4_m3min", 0.0)
-            if g:
-                d = b["district"]
-                share = b.get("ch4_cutting_share", 0.0)
-                cutting = 1.0 if self.districts[d]["power"] else 0.0
-                rate = g / 60.0 * ((1 - share) + share * cutting) * self.ch4_mult[d] * f_prof
-                if b["kind"] == "longwall":
-                    per = [rate / b["n"]] * b["n"]
-                else:  # goaf drainage enters the return near the face
-                    per = [0.0] * b["n"]
-                    per[0] = rate * 0.6
-                    per[1] = rate * 0.4
-                src.setdefault(b["id"], [[0.0] * 4 for _ in range(b["n"])])
-                for c in range(b["n"]):
-                    src[b["id"]][c][0] += per[c]
+            rate = self._ch4_rate(b)
+            if rate <= 0:
+                continue
+            if b["kind"] == "heading":  # most of a heading's gas comes off its fresh face
+                per = [rate * 0.2 / b["n"]] * b["n"]
+                per[0] += rate * 0.8
+            elif b["id"] in self.degas["branches"]:  # goaf gas enters the return near the face
+                per = [0.0] * b["n"]
+                per[0] = rate * 0.6
+                per[1] = rate * 0.4
+            else:
+                per = [rate / b["n"]] * b["n"]
+            src.setdefault(b["id"], [[0.0] * 4 for _ in range(b["n"])])
+            for c in range(b["n"]):
+                src[b["id"]][c][0] += per[c]
         fcfg = self.phys["fire"]
         if self.fire and self.fire.hrr > 0:
             b = self.br(self.fire.branch)
@@ -493,7 +584,7 @@ class Model:
         walk = self.phys["walk_speed_ms"]
         graph = {}
         for b in self.branches:
-            if b["u"] == SURFACE or b["v"] == SURFACE:
+            if b["u"] == SURFACE or b["v"] == SURFACE or b["kind"] == "duct":
                 continue  # shafts are left by cage or ladder at an exit node
             cost = b["length"] / walk * self._branch_hazard(b)
             graph.setdefault(b["u"], []).append((b["v"], cost, b["id"], +1))
@@ -624,6 +715,23 @@ class Model:
                         fan.target = 1.0
                         fan.resume = False
                 self.log("info", f"Вентиляционные ляды переключены: режим «{self.fan_mode}»")
+        for fan in self.local_fans:
+            if fan.failed:
+                fan.target = 0.0
+            if fan.speed < fan.target:
+                fan.speed = min(fan.target, fan.speed + dt / self.lf_start)
+            elif fan.speed > fan.target:
+                fan.speed = max(fan.target, fan.speed - dt / self.lf_rundown)
+        if self.local_fans:
+            d = self.br(self.local_fans[0].branch)["district"]
+            if not any(f.speed > 0.5 for f in self.local_fans) and self.districts[d]["power"]:
+                self.districts[d]["power"] = False
+                self.districts[d]["power_reason"] = "останов ВМП"
+                self.log("crit", f"ВМП остановлен: напряжение участка «{self.districts[d]['name']}» снято автоматически (п.143)")
+        if self.degas_on < self.degas_target:
+            self.degas_on = min(self.degas_target, self.degas_on + dt / self.degas.get("restart_time_s", 300))
+        elif self.degas_on > self.degas_target:
+            self.degas_on = max(self.degas_target, self.degas_on - dt / 120.0)
         running = any(f.speed > 0.5 for f in self.fans)
         if not running and self.fan_stop_since is None:
             self.fan_stop_since = self.t
@@ -638,7 +746,7 @@ class Model:
             b = self.br(sensor["branch"])
             d = b["district"]
             v = self.sensor_value(sensor)
-            limit = self.limits["ch4_face_pct"] if b["kind"] == "longwall" else self.limits["ch4_district_return_pct"]
+            limit = self.ch4_limit(sensor)
             if d == "d-main":
                 continue
             if v >= limit and self.districts[d]["power"] and self.auto_gas_protection:
@@ -697,8 +805,35 @@ class Model:
             fan.target = 0.0
             self.log("warn", f"{source}: остановка {fan.name}")
             return f"Остановка {fan.name}"
+        lf_by_id = {f.id: f for f in self.local_fans}
+        if name == "vmp_trip":
+            fan = next((f for f in self.local_fans if f.speed > 0.5), self.local_fans[0])
+            fan.failed = True
+            self.scenario = "отказ ВМП"
+            self.log("crit", f"Сценарий: аварийная остановка {fan.name} (проветривание тупиковой выработки)")
+            return f"{fan.name}: отказ"
+        if name in ("vmp_start", "vmp_stop"):
+            fan = lf_by_id.get(arg) or next(f for f in self.local_fans if not f.failed)
+            if name == "vmp_stop":
+                fan.target = 0.0
+                self.log("warn", f"{source}: остановка {fan.name}")
+                return f"Остановка {fan.name}"
+            if fan.failed:
+                return f"{fan.name} неисправен"
+            fan.target = 1.0
+            self.log("info", f"{source}: пуск {fan.name}")
+            return f"Пуск {fan.name}"
+        if name == "degas_fail":
+            self.degas_target = 0.0
+            self.scenario = "отказ дегазации"
+            self.log("crit", "Сценарий: остановка дегазационной установки, газ выработанных пространств идёт в вентиляцию")
+            return "ok"
+        if name == "degas_start":
+            self.degas_target = 1.0
+            self.log("info", f"{source}: перезапуск дегазационной установки (выход на режим 5 мин)")
+            return "ok"
         if name == "fan_repair":
-            for fan in self.fans:
+            for fan in self.fans + self.local_fans:
                 if fan.failed:
                     fan.failed = False
                     self.log("ok", f"{fan.name}: неисправность устранена, готова к пуску")
@@ -771,6 +906,19 @@ class Model:
     def visibility(self, smoke_gm3):
         k = self.phys["fire"]["mass_extinction_m2_g"] * smoke_gm3
         return min(99.0, 3.0 / k) if k > 1e-9 else 99.0
+
+    def ch4_limit(self, s):
+        """Order No. 351, Appendix 4: local accumulation 2 %, district return 1 %, mine return 0.75 %."""
+        if "limit_pct" in s:
+            return s["limit_pct"]
+        if s["id"] == "s-ch4-mine":
+            return self.limits["ch4_mine_return_pct"]
+        if self.br(s["branch"])["kind"] == "longwall":
+            return self.limits["ch4_face_pct"]
+        return self.limits["ch4_district_return_pct"]
+
+    def air_min(self, s):
+        return s.get("min_ms", self.limits["air_velocity_min_face_ms"])
 
     def sensor_value(self, s):
         b = self.br(s["branch"])

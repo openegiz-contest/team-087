@@ -7,7 +7,9 @@ Hierarchy (attributes._parents, used by the OpenEgiz app and by Telegraf's
     mine
     ├── advisor, dispatch
     ├── fan-station ── fan-1, fan-2
-    ├── d-main, d-l1, d-l2 (districts) ── workings ── sensors
+    ├── degas (goaf degassing)
+    ├── d-main, d-l1, d-l2, d-dev (districts) ── workings ── sensors
+    │                           └── vmp-1, vmp-2 (local fans of the heading)
     └── crews
 """
 
@@ -60,6 +62,15 @@ def build():
                                power_rated_kw=u["power_rated_kw"], efficiency=u["efficiency"], role=u["role"])
     for d, v in CFG["districts"].items():
         twins[d] = thing(v["name"], "district", "mine")
+    lf = CFG.get("local_fans")
+    if lf:
+        district = next(b["district"] for b in CFG["branches"] if b["id"] == lf["units"][0]["branch"])
+        for u in lf["units"]:
+            twins[u["id"]] = thing(u["name"], "local-fan", district, model=u["model"], duct=u["branch"],
+                                   h0_pa=u["h0_pa"], source=lf["source"])
+    dg = CFG.get("degassing")
+    if dg:
+        twins["degas"] = thing(dg["name"], "degassing", "mine", goafs=list(dg["branches"]), source=dg["source"])
     for b in CFG["branches"]:
         twins[b["id"]] = thing(b["name"], f"working/{b['kind']}", b["district"], length_m=b["length"],
                                area_m2=b["area"], resistance_ns2m8=b["R"], from_node=b["from"], to_node=b["to"])

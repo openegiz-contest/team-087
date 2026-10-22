@@ -21,13 +21,16 @@
     "N5": {"name": "Нижняя ниша лавы 2-С", "x": 1850, "y": -850},
     "N7": {"name": "Верхняя ниша лавы 2-С", "x": 1950, "y": -650},
     "N6": {"name": "Сопряжение вентиляционных штреков", "x": 2400, "y": -570},
+    "N9": {"name": "Забой конвейерного штрека 3-Ю (проходка)", "x": 1800, "y": -410},
+    "N10": {"name": "Устье проходческого штрека 3-Ю", "x": 1000, "y": -470},
     "N8": {"name": "Сопряжение вентиляционного ствола (запасной выход)", "x": 3000, "y": -570,
            "exit": true, "exit_penalty_s": 1200}
   },
   "districts": {
     "d-main": {"name": "Околоствольный двор и магистрали"},
     "d-l1":   {"name": "Участок лавы 1-Ю"},
-    "d-l2":   {"name": "Участок лавы 2-С"}
+    "d-l2":   {"name": "Участок лавы 2-С"},
+    "d-dev":  {"name": "Подготовительный участок (проходка штрека 3-Ю)"}
   },
   "branches": [
     {"id": "w-shaft-in",  "name": "Клетевой (воздухоподающий) ствол", "from": "S_in", "to": "N1", "kind": "shaft",
@@ -39,7 +42,7 @@
     {"id": "w-l1-face",   "name": "Лава 1-Ю", "from": "N3", "to": "N4", "kind": "longwall",
      "length": 200, "area": 13.0, "R": 0.60, "district": "d-l1", "ch4_m3min": 12.0, "ch4_cutting_share": 0.5},
     {"id": "w-l1-ret",    "name": "Вентиляционный штрек лавы 1-Ю", "from": "N4", "to": "N6", "kind": "drift",
-     "length": 1600, "area": 13.0, "R": 0.52, "district": "d-l1", "ch4_m3min": 8.0, "ch4_cutting_share": 0.0,
+     "length": 1600, "area": 13.0, "R": 0.52, "district": "d-l1",
      "regulator": true, "regulator_opening": 0.6},
     {"id": "w-l2-conv",   "name": "Конвейерный штрек лавы 2-С", "from": "N2", "to": "N5", "kind": "drift",
      "length": 2000, "area": 14.0, "R": 0.70, "district": "d-l2", "conveyor": true,
@@ -47,11 +50,20 @@
     {"id": "w-l2-face",   "name": "Лава 2-С", "from": "N5", "to": "N7", "kind": "longwall",
      "length": 200, "area": 13.0, "R": 0.80, "district": "d-l2", "ch4_m3min": 9.0, "ch4_cutting_share": 0.5},
     {"id": "w-l2-ret",    "name": "Вентиляционный штрек лавы 2-С", "from": "N7", "to": "N6", "kind": "drift",
-     "length": 1200, "area": 13.0, "R": 0.66, "district": "d-l2", "ch4_m3min": 6.0, "ch4_cutting_share": 0.0,
+     "length": 1200, "area": 13.0, "R": 0.66, "district": "d-l2",
      "regulator": true, "regulator_opening": 0.6},
-    {"id": "w-other",     "name": "Подготовительные забои, камеры и утечки", "from": "N2", "to": "N6", "kind": "leak",
-     "length": 1900, "area": 20.0, "R": 0.37, "district": "d-main", "ch4_m3min": 10.0,
-     "points": [[500, -700], [500, -470], [2350, -470], [2400, -570]]},
+    {"id": "w-other-a",   "name": "Камеры и прочие выработки (до штрека 3-Ю)", "from": "N2", "to": "N10", "kind": "leak",
+     "length": 600, "area": 20.0, "R": 0.12, "district": "d-main", "ch4_m3min": 3.0,
+     "points": [[500, -700], [500, -470], [1000, -470]]},
+    {"id": "w-other-b",   "name": "Камеры, прочие выработки и утечки (за штреком 3-Ю)", "from": "N10", "to": "N6", "kind": "leak",
+     "length": 1300, "area": 20.0, "R": 0.25, "district": "d-main", "ch4_m3min": 4.5,
+     "points": [[1000, -470], [2350, -470], [2400, -570]]},
+    {"id": "w-dev-duct",  "name": "Вентиляционный трубопровод ВМП (Ø800 мм)", "from": "N2", "to": "N9", "kind": "duct",
+     "length": 900, "area": 0.5, "R": 40.0, "district": "d-dev",
+     "points": [[540, -700], [540, -385], [1800, -385], [1800, -410]]},
+    {"id": "w-dev",       "name": "Конвейерный штрек 3-Ю (проходка, тупиковая выработка)", "from": "N9", "to": "N10", "kind": "heading",
+     "length": 800, "area": 14.0, "R": 0.05, "district": "d-dev", "ch4_m3min": 2.5, "ch4_cutting_share": 0.6,
+     "points": [[1800, -410], [1000, -410], [1000, -470]]},
     {"id": "w-ret-main",  "name": "Главный вентиляционный штрек", "from": "N6", "to": "N8", "kind": "drift",
      "length": 900, "area": 30.0, "R": 0.0030, "district": "d-main"},
     {"id": "w-shaft-out", "name": "Вентиляционный ствол", "from": "N8", "to": "S_out", "kind": "shaft",
@@ -71,6 +83,28 @@
     ],
     "source": "ГОСТ 11004-84, табл. 3 и каталог «Вентпром»: ВЦД-31,5М2, номинал 250 м3/с при 4950 Па, привод 1600 кВт, КПД 0,87; кривая аппроксимирована параболой h = h0 - h2*Q^2"
   },
+  "local_fans": {
+    "start_time_s": 20,
+    "stop_rundown_s": 15,
+    "stopped_extra_R": 3000,
+    "units": [
+      {"id": "vmp-1", "name": "ВМП №1 (рабочий)", "model": "ВМЭ2-10 (класс)", "branch": "w-dev-duct", "h0_pa": 3500,
+       "h2_pa_s2m6": 15, "power_rated_kw": 55, "efficiency": 0.7, "state": "running"},
+      {"id": "vmp-2", "name": "ВМП №2 (резервный)", "model": "ВМЭ2-10 (класс)", "branch": "w-dev-duct", "h0_pa": 3500,
+       "h2_pa_s2m6": 15, "power_rated_kw": 55, "efficiency": 0.7, "state": "stopped"}
+    ],
+    "source": "Приказ МИР РК №351, п.143-144: при остановке ВМП напряжение снимается автоматически, работы прекращаются, людей выводят; в шахтах III категории обязателен резервный ВМП. Кривая — допущение для вентиляторов класса ВМЭ2-10 (подача около 10 м3/с, давление до 3,5 кПа)"
+  },
+  "degassing": {
+    "name": "Дегазационная установка выработанных пространств",
+    "branches": {
+      "w-l1-ret": {"goaf_total_m3min": 20.0, "efficiency": 0.6},
+      "w-l2-ret": {"goaf_total_m3min": 15.0, "efficiency": 0.6}
+    },
+    "pipe_ch4_pct": 35,
+    "restart_time_s": 300,
+    "source": "US EPA CMOP 2013, табл. A-1: на шахтах Карагандинского бассейна дегазацией извлекается от половины до 88% метановыделения лав (Абайская: 124-129 из 141-146 м3/мин); концентрация в трубопроводах 6-55%"
+  },
   "sensors": [
     {"id": "s-ch4-l1-face", "name": "Метан, лава 1-Ю (у комбайна)", "type": "CH4", "branch": "w-l1-face", "pos": 0.7},
     {"id": "s-ch4-l1-ret",  "name": "Метан, исходящая струя лавы 1-Ю", "type": "CH4", "branch": "w-l1-ret", "pos": 0.15},
@@ -82,13 +116,17 @@
     {"id": "s-co-l2-ret",   "name": "CO, вентиляционный штрек лавы 2-С", "type": "CO", "branch": "w-l2-ret", "pos": 0.2},
     {"id": "s-co-mine",     "name": "CO, исходящая струя шахты", "type": "CO", "branch": "w-ret-main", "pos": 0.9},
     {"id": "s-v-l1",        "name": "Скорость воздуха, лава 1-Ю", "type": "AIR", "branch": "w-l1-face", "pos": 0.5},
-    {"id": "s-v-l2",        "name": "Скорость воздуха, лава 2-С", "type": "AIR", "branch": "w-l2-face", "pos": 0.5}
+    {"id": "s-v-l2",        "name": "Скорость воздуха, лава 2-С", "type": "AIR", "branch": "w-l2-face", "pos": 0.5},
+    {"id": "s-ch4-dev",     "name": "Метан, забой штрека 3-Ю", "type": "CH4", "branch": "w-dev", "pos": 0.05, "limit_pct": 2.0},
+    {"id": "s-ch4-dev-ret", "name": "Метан, исходящая из штрека 3-Ю", "type": "CH4", "branch": "w-dev", "pos": 0.92, "limit_pct": 1.0},
+    {"id": "s-v-dev",       "name": "Скорость воздуха, штрек 3-Ю", "type": "AIR", "branch": "w-dev", "pos": 0.5, "min_ms": 0.25}
   ],
   "brigades": [
     {"id": "crew-l1",   "name": "Бригада лавы 1-Ю", "people": 9, "branch": "w-l1-face", "pos": 0.5},
     {"id": "crew-l2",   "name": "Бригада лавы 2-С", "people": 8, "branch": "w-l2-face", "pos": 0.5},
     {"id": "crew-conv", "name": "Звено конвейерщиков", "people": 3, "branch": "w-l1-conv", "pos": 0.8},
-    {"id": "crew-rep",  "name": "Звено ремонтников", "people": 4, "branch": "w-l2-ret", "pos": 0.6}
+    {"id": "crew-rep",  "name": "Звено ремонтников", "people": 4, "branch": "w-l2-ret", "pos": 0.6},
+    {"id": "crew-dev",  "name": "Проходчики штрека 3-Ю", "people": 5, "branch": "w-dev", "pos": 0.08}
   ],
   "fire_sites": {
     "fire-l1-conv": {"name": "Пожар на ленте конвейерного штрека лавы 1-Ю", "branch": "w-l1-conv", "pos": 0.55},
@@ -127,6 +165,8 @@
     "co_alarm_ppm": 50,
     "air_velocity_max_face_ms": 4.0,
     "air_velocity_min_face_ms": 0.5,
+    "layering_number_min": 2.5,
+    "layering_source": "Число расслоения L = u / (g·(Δρ/ρ)·q/W)^(1/3) (Bakke, Leach, 1962): при L < 2,5 метан образует слой у кровли",
     "fan_reverse_max_s": 600,
     "fan_reverse_min_share": 0.6,
     "evacuation_max_min": 60,

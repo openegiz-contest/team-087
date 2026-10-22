@@ -153,6 +153,19 @@ class Twin:
                 "pressure": {"value": round(f.pressure), "unit": "Pa"},
                 "power": {"value": round(f.flow * f.pressure / f.eff / 1000), "unit": "kW"},
             }
+        for f in m.local_fans:
+            out[f.id] = {
+                "state": {"value": f.state},
+                "running": {"value": 1 if f.speed > 0.5 else 0},
+                "airflow": {"value": round(f.flow, 2), "unit": "m3/s"},
+                "pressure": {"value": round(f.pressure), "unit": "Pa"},
+            }
+        if m.degas["branches"]:
+            out["degas"] = {
+                "running": {"value": round(m.degas_on, 2)},
+                "captured": {"value": round(m.degas_captured(), 1), "unit": "m3/min"},
+                "pipe_ch4": {"value": m.degas.get("pipe_ch4_pct", 35) if m.degas_on > 0.05 else 0, "unit": "%"},
+            }
         for d, dv in m.districts.items():
             st = m.district_stats(d)
             out[d] = {
@@ -172,19 +185,22 @@ class Twin:
                 "visibility": {"value": round(m.visibility(max(b["smoke"])), 1), "unit": "m"},
                 "temp_rise": {"value": round(max(b["heat"]), 1), "unit": "K"},
                 "regulator_opening": {"value": round(b["opening"] * 100), "unit": "%"},
+                "thermal_depression": {"value": round(b.get("buoyancy", 0.0), 1), "unit": "Pa"},
             }
+            ln = m.layering_number(b)
+            if ln is not None:
+                out[b["id"]]["layering_number"] = {"value": round(min(ln, 99.0), 2)}
         for sn in m.sensors:
             v = m.sensor_value(sn)
             if sn["type"] == "CH4":
-                lim = L["ch4_face_pct"] if m.br(sn["branch"])["kind"] == "longwall" else (
-                    L["ch4_mine_return_pct"] if sn["id"] == "s-ch4-mine" else L["ch4_district_return_pct"])
+                lim = m.ch4_limit(sn)
                 alarm = 2 if v >= lim else 1 if v >= 0.8 * lim else 0
                 unit = "%"
             elif sn["type"] == "CO":
                 alarm = 2 if v >= L["co_alarm_ppm"] else 1 if v >= L["co_mac_ppm"] else 0
                 unit = "ppm"
             else:
-                alarm = 2 if v < L["air_velocity_min_face_ms"] else 1 if v > L["air_velocity_max_face_ms"] else 0
+                alarm = 2 if v < m.air_min(sn) else 1 if v > L["air_velocity_max_face_ms"] else 0
                 unit = "m/s"
             out[sn["id"]] = {"reading": {"value": round(v, 3), "unit": unit}, "alarm": {"value": alarm}}
         for c in m.crews:
@@ -208,6 +224,8 @@ class Twin:
                 "ch4": [round(x, 3) for x in b["ch4"]], "co": [round(x, 1) for x in b["co"]],
                 "vis": [round(m.visibility(x), 1) for x in b["smoke"]],
                 "heat": [round(x, 1) for x in b["heat"]], "opening": b["opening"],
+                "buoyancy": round(b.get("buoyancy", 0.0), 1),
+                "layering": (lambda n: round(n, 2) if n is not None else None)(m.layering_number(b)),
             } for b in m.branches]
             crews = [{
                 "id": c.id, "name": c.name, "people": c.people, "status": c.status, "branch": c.branch,
@@ -225,6 +243,11 @@ class Twin:
                 "fans": [{"id": f.id, "name": f.name, "model": f.model, "state": f.state, "speed": round(f.speed, 2),
                           "failed": f.failed, "flow": round(f.flow, 1), "pressure": round(f.pressure),
                           "power_kw": round(f.flow * f.pressure / f.eff / 1000)} for f in m.fans],
+                "local_fans": [{"id": f.id, "name": f.name, "model": f.model, "state": f.state, "speed": round(f.speed, 2),
+                                "failed": f.failed, "flow": round(f.flow, 2), "pressure": round(f.pressure)}
+                               for f in m.local_fans],
+                "degas": {"on": round(m.degas_on, 2), "target": m.degas_target,
+                          "captured": round(m.degas_captured(), 1)} if m.degas["branches"] else None,
                 "districts": {d: {**v, **{k: round(x, 2) for k, x in m.district_stats(d).items()}}
                               for d, v in m.districts.items()},
                 "branches": branches,

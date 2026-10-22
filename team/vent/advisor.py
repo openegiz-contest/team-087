@@ -28,12 +28,9 @@ def alerts(m):
         v = m.sensor_value(s)
         b = m.br(s["branch"])
         if s["type"] == "CH4":
-            if b["kind"] == "longwall":
-                lim, what = L["ch4_face_pct"], "местное скопление"
-            elif s["id"] == "s-ch4-mine":
-                lim, what = L["ch4_mine_return_pct"], "исходящая шахты"
-            else:
-                lim, what = L["ch4_district_return_pct"], "исходящая участка"
+            lim = m.ch4_limit(s)
+            what = {L["ch4_face_pct"]: "местное скопление", L["ch4_mine_return_pct"]: "исходящая шахты"}.get(
+                lim, "исходящая участка")
             if v >= L["ch4_explosive_lower_pct"]:
                 out.append({"level": "crit", "rule": "Прил. 4",
                             "text": f"{s['name']}: {v:.2f}% — взрывоопасная концентрация метана"})
@@ -54,9 +51,20 @@ def alerts(m):
             if v > L["air_velocity_max_face_ms"]:
                 out.append({"level": "warn", "rule": "Прил. 6",
                             "text": f"{s['name']}: {v:.2f} м/с > {L['air_velocity_max_face_ms']} м/с"})
-            elif v < L["air_velocity_min_face_ms"]:
+            elif v < m.air_min(s):
                 out.append({"level": "crit", "rule": "Прил. 6",
-                            "text": f"{s['name']}: {v:.2f} м/с < {L['air_velocity_min_face_ms']} м/с"})
+                            "text": f"{s['name']}: {v:.2f} м/с < {m.air_min(s)} м/с"})
+    if m.local_fans and not any(f.speed > 0.5 for f in m.local_fans):
+        out.append({"level": "crit", "rule": "п.143",
+                    "text": "ВМП не работает: тупиковая выработка штрека 3-Ю без проветривания"})
+    if m.degas["branches"] and m.degas_on < 0.5:
+        out.append({"level": "warn", "rule": "дегазация",
+                    "text": f"Дегазация не работает: в вентиляцию идёт ещё {sum(v['goaf_total_m3min'] * v['efficiency'] for v in m.degas['branches'].values()) * (1 - m.degas_on):.0f} м³/мин метана"})
+    for b in m.branches:
+        n = m.layering_number(b)
+        if n is not None and n < L["layering_number_min"] and max(b["ch4"]) >= 0.5:
+            out.append({"level": "warn", "rule": "расслоение",
+                        "text": f"{b['name']}: число расслоения {n:.1f} < {L['layering_number_min']} — метан может скопиться слоем у кровли"})
     for c in m.crews:
         if c.underground and c.status == "работают" and (c.ch4_here >= L["ch4_face_pct"] or c.co_here >= L["co_mac_ppm"]):
             out.append({"level": "crit", "rule": "п.116, п.150",
@@ -80,6 +88,23 @@ def options(m):
         opts.append({"id": "reserve", "name": f"Пустить {working_fan.name}", "cmds": [start]})
         opts.append({"id": "reserve_evac", "name": f"Пустить {working_fan.name} и вывести людей",
                      "cmds": [start, ev]})
+    lf_running = any(f.target > 0.5 and not f.failed for f in m.local_fans)
+    lf_ready = next((f for f in m.local_fans if not f.failed and f.target < 0.5), None)
+    if m.local_fans and not lf_running:
+        d = m.br(m.local_fans[0].branch)["district"]
+        ev_d = {"cmd": "evacuate", "arg": d}
+        if lf_ready:
+            opts.append({"id": "vmp_reserve", "name": f"Пустить {lf_ready.name}", "cmds": [{"cmd": "vmp_start", "arg": lf_ready.id}]})
+            opts.append({"id": "vmp_reserve_evac", "name": f"Пустить {lf_ready.name} и вывести проходчиков",
+                         "cmds": [{"cmd": "vmp_start", "arg": lf_ready.id}, ev_d]})
+        opts.append({"id": "vmp_evac", "name": "Вывести проходчиков из тупика", "cmds": [ev_d]})
+    if m.degas["branches"] and m.degas_target < 0.5:
+        opts.append({"id": "degas", "name": "Перезапустить дегазационную установку", "cmds": [{"cmd": "degas_start"}]})
+        regs = [{"cmd": "regulator", "arg": b["id"], "opening": 1.0} for b in m.branches
+                if b.get("regulator") and b["opening"] < 0.99 and b["id"] in m.degas["branches"]]
+        if regs:
+            opts.append({"id": "degas_reg", "name": "Перезапустить дегазацию и открыть регуляторы лав на время разгона",
+                         "cmds": [{"cmd": "degas_start"}] + regs})
     fire = m.fire and not m.fire.out
     hot = [] if fire else [d for d in m.districts if d != "d-main"
                            and m.district_stats(d)["max_ch4"] >= 0.8 * m.limits["ch4_district_return_pct"]]
@@ -101,7 +126,7 @@ def options(m):
         if fire:
             opts.append({"id": "fight_evac", "name": "Вывести людей и тушить пожар (ВГК)",
                          "cmds": [ev, {"cmd": "extinguish"}]})
-    elif not any(o["id"] == "reserve_evac" for o in opts) and any(a["level"] == "crit" for a in alerts(m)):
+    elif not any(o["id"] in ("reserve_evac", "vmp_evac") for o in opts) and any(a["level"] == "crit" for a in alerts(m)):
         opts.append({"id": "evac", "name": "Вывести всех людей", "cmds": [ev]})
     return opts
 
@@ -113,6 +138,7 @@ def _metrics(m, horizon_s, dt=5.0):
     explosive_s = None
     smoke_pm = 0.0
     gas_pm = 0.0
+    still_pm = 0.0  # people in workings without the minimum air velocity (Appendix 6, p.143)
     all_out_s = None
     t0 = m.t
     while m.t - t0 < horizon_s:
@@ -121,8 +147,7 @@ def _metrics(m, horizon_s, dt=5.0):
         for s in m.sensors:
             if s["type"] == "CH4":
                 v = m.sensor_value(s)
-                mx = max(mx, v / (L["ch4_face_pct"] if m.br(s["branch"])["kind"] == "longwall"
-                                  else L["ch4_district_return_pct"]))
+                mx = max(mx, v / m.ch4_limit(s))
         worst_ch4 = max(worst_ch4, m.summary()["max_ch4"])
         if mx >= 1.0:
             over_limit_s += dt
@@ -135,6 +160,9 @@ def _metrics(m, horizon_s, dt=5.0):
                 smoke_pm += c.people * dt / 60
             if c.ch4_here >= L["ch4_district_return_pct"]:
                 gas_pm += c.people * dt / 60
+            b = m.br(c.branch)
+            if abs(b["Q"]) / b["area"] < 0.25 and b["kind"] not in ("shaft",):
+                still_pm += c.people * dt / 60
         if all_out_s is None and not any(c.underground for c in m.crews):
             all_out_s = m.t - t0
     s = m.summary()
@@ -144,6 +172,7 @@ def _metrics(m, horizon_s, dt=5.0):
         "people_incapacitated": s["people_incapacitated"],
         "smoke_person_min": round(smoke_pm),
         "gas_person_min": round(gas_pm),
+        "still_air_person_min": round(still_pm),
         "people_in_explosive_gas": explosive_s is not None,
         "fed_max": round(fed_max, 3),
         "max_ch4_pct": round(worst_ch4, 2),
@@ -155,10 +184,12 @@ def _metrics(m, horizon_s, dt=5.0):
 
 
 def _score(r):
-    # Lives first, then exposure in smoke and gas, then methane above the limit.
+    # Lives first, then exposure in smoke and gas, then methane above the limit. Withdrawing
+    # people is not a goal in itself: it only scores through the exposure it avoids.
     return (r["people_incapacitated"] * 1000 + (500 if r["people_in_explosive_gas"] else 0)
             + r["fed_max"] * 300 + r["smoke_person_min"] * 2 + r["gas_person_min"] * 1
-            + r["ch4_over_limit_min"] * 3 + r["people_underground"] * 0.5)
+            + r["still_air_person_min"] * 1
+            + r["ch4_over_limit_min"] * 3)
 
 
 def forecast(m, horizon_min=60):
@@ -172,7 +203,7 @@ def forecast(m, horizon_min=60):
         r.update({"id": opt["id"], "name": opt["name"], "cmds": opt["cmds"]})
         r["score"] = round(_score(r), 1)
         results.append(r)
-    results.sort(key=lambda r: r["score"])
+    results.sort(key=lambda r: (r["score"], len(r["cmds"])))  # equal outcome: the simpler decision
     best = results[0]
     return {
         "sim_time": m.t,
@@ -202,11 +233,15 @@ def explain(best, results, base_h=60):
         if base["smoke_person_min"] > best["smoke_person_min"]:
             parts.append(f"Пребывание людей в дыму и CO: {base['smoke_person_min']} чел.-мин без действий против "
                          f"{best['smoke_person_min']}.")
+        if base["still_air_person_min"] > best["still_air_person_min"]:
+            parts.append(f"Пребывание людей в непроветриваемых выработках: {base['still_air_person_min']} чел.-мин "
+                         f"без действий против {best['still_air_person_min']}.")
         if base["gas_person_min"] > best["gas_person_min"]:
             parts.append(f"Пребывание людей в метане выше 1%: {base['gas_person_min']} чел.-мин без действий против "
                          f"{best['gas_person_min']}.")
-    if best["all_out_min"] is not None:
-        parts.append(f"Все люди выйдут на поверхность через {best['all_out_min']} мин.")
-    else:
-        parts.append(f"Под землёй через {base_h} мин останутся {best['people_underground']} чел.")
+    if any(c["cmd"] == "evacuate" for c in best["cmds"]):
+        if best["all_out_min"] is not None:
+            parts.append(f"Все люди выйдут на поверхность через {best['all_out_min']} мин.")
+        else:
+            parts.append(f"Через {base_h} мин под землёй ещё будут {best['people_underground']} чел. (выход дольше часа).")
     return " ".join(parts)

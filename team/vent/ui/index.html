@@ -130,6 +130,8 @@ nav#tabs button.on{background:var(--bg);border-color:var(--line);color:var(--tex
     </div>
     <div class="row">
       <button class="danger" data-cmd='{"cmd":"co_rise"}'>Рост CO (самонагревание)</button>
+      <button class="danger" data-cmd='{"cmd":"vmp_trip"}'>Отказ ВМП (тупик 3-Ю)</button>
+      <button class="danger" data-cmd='{"cmd":"degas_fail"}'>Отказ дегазации</button>
       <select id="fire-site"></select>
       <button class="danger" id="fire-btn">Пожар</button>
     </div>
@@ -147,6 +149,9 @@ nav#tabs button.on{background:var(--bg);border-color:var(--line);color:var(--tex
     <h2>Управление</h2>
     <div class="row"><b style="width:100%">Главная вентиляторная установка</b></div>
     <div id="fans"></div>
+    <div class="row" style="margin-top:8px"><b style="width:100%">Местное проветривание и дегазация</b></div>
+    <div id="lfans"></div>
+    <div id="degas"></div>
     <div class="row">
       <button id="rev-btn">Реверс</button>
       <button data-cmd='{"cmd":"fan_repair"}'>Устранить неисправность</button>
@@ -257,7 +262,7 @@ function build(){
     const pts = branchPts(b); const cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
     geo[b.id] = {pts, cum, len: cum.at(-1)};
-    const w = b.kind === "shaft" ? 34 : b.kind === "longwall" ? 26 : b.kind === "leak" ? 12 : 18;
+    const w = b.kind === "shaft" ? 34 : b.kind === "longwall" ? 26 : b.kind === "leak" ? 12 : b.kind === "duct" ? 7 : 18;
     el("path", {d: pathD(pts), stroke:"#0a0f12", "stroke-width": w + 8, fill:"none", "stroke-linecap":"round"}, segLayer);
     const n = Math.max(2, Math.round(b.length / 50));
     segs[b.id] = [];
@@ -270,6 +275,7 @@ function build(){
       "stroke-dasharray": "14 46"}, flowLayer);
     flows[b.id] = {path: fl, off: 0, v: 0};
     if (b.kind === "leak") fl.setAttribute("stroke-dasharray", "8 60");
+    if (b.kind === "duct") { fl.setAttribute("stroke-width", 2); fl.setAttribute("stroke-dasharray", "6 30"); }
     const hit = el("path", {d: pathD(pts), stroke:"transparent", "stroke-width": w + 14, fill:"none"}, flowLayer);
     const t = el("title", {}, hit); t.textContent = b.name; segs[b.id].title = t;
   });
@@ -281,7 +287,9 @@ function build(){
   lab("w-l2-conv", .55, 42, "Конв. штрек лавы 2-С");
   lab("w-l1-ret", .5, -24, "Вент. штрек лавы 1-Ю");
   lab("w-l2-ret", .4, 40, "Вент. штрек лавы 2-С");
-  lab("w-other", .5, -18, "Подготовительные забои, камеры, утечки");
+  lab("w-other-b", .45, 34, "Камеры, прочие выработки, утечки");
+  lab("w-dev", .45, -22, "Штрек 3-Ю (проходка, тупик)");
+  { const p = along("w-dev-duct", .08); el("text", {x:p[0] + 14, y:p[1], fill:"#ffd38a", "font-size":24, "font-weight":600}, svg).textContent = "ВМП"; }
   lab("w-ret-main", .5, -24, "Главный вент. штрек");
   const lf1 = along("w-l1-face", .5), lf2 = along("w-l2-face", .5);
   el("text", {x:lf1[0] - 30, y:lf1[1], fill:"#ffd38a", "font-size":34, "text-anchor":"end", "font-weight":600}, svg).textContent = "Лава 1-Ю";
@@ -294,7 +302,7 @@ function build(){
     el("text", {y:-54, "text-anchor":"middle", fill:"#bff0d3", "font-size":24, "font-weight":700}, g).textContent = "ВЫХОД";
   });
   // district power markers
-  [["d-l1","w-l1-conv",.15],["d-l2","w-l2-conv",.75]].forEach(([d, b, f]) => { const p = along(b, f);
+  [["d-l1","w-l1-conv",.15],["d-l2","w-l2-conv",.75],["d-dev","w-dev",.75]].forEach(([d, b, f]) => { const p = along(b, f);
     const g = el("g", {transform:`translate(${p[0]},${p[1] + 58})`}, svg);
     const r = el("rect", {x:-150, y:-24, width:300, height:42, rx:6, fill:"#14271e", stroke:"#3fb27f"}, g);
     const t = el("text", {y:7, "text-anchor":"middle", fill:"#bff0d3", "font-size":26}, g); t.textContent = "⚡ питание";
@@ -404,7 +412,7 @@ function renderPanels(){
   if (fc) {
     $("#explain").style.display = ""; $("#explain").textContent = fc.explain;
     $("#forecast").innerHTML = `<tr><th>Вариант решения</th><th title="Человеко-минуты в дыму или CO ≥ 50 ppm">Дым, чел·мин</th><th title="Человеко-минуты в метане ≥ 1%">CH₄, чел·мин</th><th title="Сколько минут метан выше нормы на датчиках">CH₄ &gt; нормы, мин</th><th title="Через сколько минут все выйдут на поверхность">Все вышли</th><th></th></tr>` +
-      fc.options.map(o => `<tr class="${o.id === fc.best ? "best" : ""}"><td>${o.id === fc.best ? "★ " : ""}${o.name}${o.people_incapacitated ? ` <b style="color:var(--crit)">· ${o.people_incapacitated} чел. без способности к самоспасению</b>` : ""}${o.people_in_explosive_gas ? ` <b style="color:#d070ff">· люди во взрывоопасной смеси</b>` : ""}</td>
+      fc.options.slice(0, 6).map(o => `<tr class="${o.id === fc.best ? "best" : ""}"><td>${o.id === fc.best ? "★ " : ""}${o.name}${o.people_incapacitated ? ` <b style="color:var(--crit)">· ${o.people_incapacitated} чел. без способности к самоспасению</b>` : ""}${o.people_in_explosive_gas ? ` <b style="color:#d070ff">· люди во взрывоопасной смеси</b>` : ""}</td>
         <td class="n">${o.smoke_person_min}</td><td class="n">${o.gas_person_min}</td><td class="n">${o.ch4_over_limit_min}</td>
         <td class="n">${o.all_out_min != null ? o.all_out_min + " мин" : "—"}</td>
         <td>${o.cmds.length ? `<button class="go" data-run='${JSON.stringify(o.cmds)}'>Выполнить</button>` : ""}</td></tr>`).join("");
@@ -423,6 +431,15 @@ function renderPanels(){
     ${v.power ? `<button class="danger" data-cmd='{"cmd":"power_off","arg":"${d}"}'>Обесточить</button>` :
                 `<button data-cmd='{"cmd":"power_on","arg":"${d}"}'>Подать питание</button>`}
     <button class="go" data-cmd='{"cmd":"evacuate","arg":"${d}"}'>Вывести</button></div>`).join("");
+  $("#lfans").innerHTML = (S.local_fans || []).map(f => `<div class="row"><span style="flex:1">${f.name} <span class="muted">${f.model}</span><br>
+    <b style="color:${f.failed ? "var(--crit)" : f.speed > .5 ? "var(--ok)" : "var(--muted)"}">${f.state}</b>
+    <span class="muted"> · ${f.flow} м³/с · ${f.pressure} Па</span></span>
+    <button class="go" data-cmd='{"cmd":"vmp_start","arg":"${f.id}"}'>Пуск</button>
+    <button data-cmd='{"cmd":"vmp_stop","arg":"${f.id}"}'>Стоп</button></div>`).join("");
+  if (S.degas) $("#degas").innerHTML = `<div class="row"><span style="flex:1">Дегазация выработанных пространств<br>
+    <b style="color:${S.degas.on > .9 ? "var(--ok)" : "var(--crit)"}">${S.degas.on > .9 ? "работает" : S.degas.target > .5 ? "выход на режим" : "остановлена"}</b>
+    <span class="muted"> · извлекает ${S.degas.captured} м³/мин CH₄</span></span>
+    <button class="go" data-cmd='{"cmd":"degas_start"}'>Перезапуск</button></div>`;
   const regs = S.branches.filter(b => L.branches.find(x => x.id === b.id).regulator);
   if (!$("#regs").dataset.built) {
     $("#regs").innerHTML = regs.map(b => `<div class="row"><span style="flex:1">${L.branches.find(x => x.id === b.id).name}</span>
@@ -446,7 +463,7 @@ function renderPanels(){
 }
 
 // ---- charts ------------------------------------------------------------------
-const COLORS = ["#4aa3df","#3fb27f","#e8b33a","#e5484d","#c084fc"];
+const COLORS = ["#4aa3df","#3fb27f","#e8b33a","#e5484d","#c084fc","#2fe8ce"];
 function chart(svgSel, ids, limits, unit){
   const svg = $(svgSel); svg.innerHTML = "";
   if (hist.length < 2) return;
@@ -461,9 +478,9 @@ function chart(svgSel, ids, limits, unit){
     el("line", {x1:l, x2:W-r, y1:Yv(v), y2:Yv(v), stroke:"#e5484d", "stroke-dasharray":"5 4"}, svg);
     el("text", {x:W-r-2, y:Yv(v)-3, "text-anchor":"end", fill:"#ff8b8e", "font-size":11}, svg).textContent = name; });
   ids.forEach((id, i) => { const pts = hist.map(h => `${X(h.t).toFixed(1)},${Yv(h.s[id] || 0).toFixed(1)}`).join(" ");
-    el("polyline", {points:pts, fill:"none", stroke:COLORS[i % 5], "stroke-width":2}, svg);
+    el("polyline", {points:pts, fill:"none", stroke:COLORS[i % 6], "stroke-width":2}, svg);
     const name = L.sensors.find(s => s.id === id).name.replace(/^(Метан|CO), /, "");
-    el("text", {x:l + (i % 3) * 185, y:H - 22 + Math.floor(i / 3) * 14, fill:COLORS[i % 5], "font-size":11}, svg).textContent = "■ " + name; });
+    el("text", {x:l + (i % 3) * 185, y:H - 22 + Math.floor(i / 3) * 14, fill:COLORS[i % 6], "font-size":11}, svg).textContent = "■ " + name; });
   el("text", {x:l, y:H-36, fill:"#8a9aa6", "font-size":10}, svg).textContent = fmtClock(t0);
   el("text", {x:W-r, y:H-36, fill:"#8a9aa6", "font-size":10, "text-anchor":"end"}, svg).textContent = fmtClock(t1);
 }
@@ -488,7 +505,7 @@ async function poll(){
   try { S = await (await fetch("api/state")).json();
     render();
     if (++pollCount % 3 === 1) { const h = await (await fetch("api/history")).json(); hist.length = 0; hist.push(...h); }
-    chart("#ch-ch4", ["s-ch4-l1-face","s-ch4-l1-ret","s-ch4-l2-face","s-ch4-l2-ret","s-ch4-mine"], [[1,"1% исходящая участка"],[2,"2% местное скопление"]]);
+    chart("#ch-ch4", ["s-ch4-l1-face","s-ch4-l1-ret","s-ch4-l2-face","s-ch4-l2-ret","s-ch4-mine","s-ch4-dev"], [[1,"1% исходящая участка"],[2,"2% местное скопление"]]);
     chart("#ch-co", ["s-co-main","s-co-l1-conv","s-co-l2-ret","s-co-mine"], [[17,"ПДК 17 ppm"],[50,"50 ppm"]]);
   } catch (e) { $("#ditto").textContent = "нет связи с двойником"; }
 }

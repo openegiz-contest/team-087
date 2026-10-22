@@ -33,6 +33,7 @@ class AirNetwork(unittest.TestCase):
                 drop = b["R_eff"] * b["Q"] * abs(b["Q"])
                 if b["id"] == BASE.fan_branch:
                     drop -= BASE._fan_head(b["Q"])[0] + nat
+                drop -= BASE._local_head(b["id"], b["Q"])[0] + b["buoyancy"]
                 total += s * drop
             self.assertLess(abs(total), 1.0)
 
@@ -92,6 +93,54 @@ class Gas(unittest.TestCase):
         self.assertLess(max(m.br("w-l1-face")["co"]), 1)  # upstream in another district
 
 
+class HeadingAndDegassing(unittest.TestCase):
+    def test_local_fan_trip_cuts_power_and_layers_methane(self):
+        m = BASE.clone()
+        q0 = m.br("w-dev")["Q"]
+        m.apply({"cmd": "vmp_trip"})
+        m.run(600)
+        self.assertLess(m.br("w-dev")["Q"], 0.15 * q0)
+        self.assertFalse(m.districts["d-dev"]["power"])  # Order 351, p.143
+        self.assertLess(m.layering_number(m.br("w-dev")), m.limits["layering_number_min"])
+
+    def test_reserve_local_fan_restores_the_heading(self):
+        m = BASE.clone()
+        m.apply({"cmd": "vmp_trip"})
+        m.run(600)
+        m.apply({"cmd": "vmp_start", "arg": "vmp-2"})
+        m.run(900)
+        self.assertGreater(m.br("w-dev")["Q"], 0.9 * BASE.br("w-dev")["Q"])
+        face = next(s for s in m.sensors if s["id"] == "s-ch4-dev")
+        self.assertLess(m.sensor_value(face), 0.5)
+
+    def test_degassing_failure_sends_goaf_gas_to_the_return(self):
+        m = BASE.clone()
+        ret = next(s for s in m.sensors if s["id"] == "s-ch4-l1-ret")
+        before = m.sensor_value(ret)
+        m.apply({"cmd": "degas_fail"})
+        m.run(300)
+        self.assertEqual(m.degas_captured(), 0.0)
+        self.assertGreater(m.sensor_value(ret), 1.25 * before)
+
+
+class FireBuoyancy(unittest.TestCase):
+    def test_fire_in_a_descending_drift_reverses_the_air_without_the_fan(self):
+        # The conveyor drift of longwall 1 runs down from N2 (-700 m) to N3 (-750 m):
+        # hot gases push against the air and, with the main fan stopped, win.
+        m = BASE.clone()
+        m.apply({"cmd": "fan_trip"})
+        m.apply({"cmd": "fire", "arg": "fire-l1-conv"})
+        m.run(1200)
+        self.assertLess(m.br("w-l1-conv")["buoyancy"], 0)
+        self.assertLess(m.br("w-l1-conv")["Q"], 0)
+
+    def test_fire_in_a_rising_working_helps_the_air(self):
+        m = BASE.clone()
+        m.apply({"cmd": "fire", "arg": "fire-l1-conv"})
+        m.run(900)
+        self.assertGreater(m.br("w-l1-face")["buoyancy"], 0)  # the longwall rises from N3 to N4
+
+
 class Advisor(unittest.TestCase):
     def best(self, scenario, minutes=5):
         m = BASE.clone()
@@ -104,6 +153,9 @@ class Advisor(unittest.TestCase):
 
     def test_intake_fire_reverse(self):
         self.assertEqual(self.best({"cmd": "fire", "arg": "fire-main"}, 10), "rev_evac")
+
+    def test_local_fan_trip_start_reserve_local_fan(self):
+        self.assertIn(self.best({"cmd": "vmp_trip"}), ("vmp_reserve", "vmp_reserve_evac"))
 
     def test_return_fire_do_not_reverse(self):
         self.assertNotEqual(self.best({"cmd": "fire", "arg": "fire-l2-ret"}, 10), "rev_evac")
