@@ -59,6 +59,16 @@ tr.best td{background:#13281f}
 svg text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .explain{background:#13281f;border:1px solid #24533d;border-radius:6px;padding:7px 9px;margin:6px 0}
 input[type=range]{width:120px}
+nav#tabs{display:flex;gap:4px;padding:6px 14px 0;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+nav#tabs button{border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;background:none;color:var(--muted);padding:7px 14px;font-weight:500}
+nav#tabs button.on{background:var(--bg);border-color:var(--line);color:var(--text);margin-bottom:-1px}
+.page{display:none}
+.page.on{display:block}
+.page.full iframe{width:100%;height:calc(100vh - 112px);border:0;display:block;background:#0b1520}
+#page-twins{padding:10px}
+#twins td{font-size:12px}
+#twins .f{display:inline-block;margin:1px 8px 1px 0;white-space:nowrap}
+#twins .f b{color:var(--text);font-weight:600}
 </style>
 </head>
 <body>
@@ -73,7 +83,13 @@ input[type=range]{width:120px}
   <button id="pause">⏸</button>
   <span class="badge" id="ditto" title="Команды идут через двойник dispatch в Eclipse Ditto">Ditto: …</span>
 </header>
-<main>
+<nav id="tabs">
+  <button data-tab="console" class="on">Пульт</button>
+  <button data-tab="3d">3D-модель</button>
+  <button data-tab="graf">Графики (Grafana)</button>
+  <button data-tab="twins">Двойники (Ditto)</button>
+</nav>
+<main id="page-console" class="page on">
 <section>
   <div class="kpis">
     <div class="kpi"><div class="l">Воздух в шахту</div><div class="v" id="k-air">—</div></div>
@@ -145,6 +161,13 @@ input[type=range]{width:120px}
   <div class="card"><h2>Журнал</h2><div id="log"></div></div>
 </aside>
 </main>
+<div id="page-3d" class="page full"><iframe title="3D-модель шахты"></iframe></div>
+<div id="page-graf" class="page full"><iframe title="Графики Grafana"></iframe></div>
+<div id="page-twins" class="page">
+  <div class="card"><h2>Цифровые двойники в Eclipse Ditto (живое состояние)</h2>
+    <div class="muted" id="twins-meta" style="margin-bottom:6px"></div>
+    <table id="twins"></table></div>
+</div>
 <script>
 const $ = s => document.querySelector(s);
 const NS = "http://www.w3.org/2000/svg";
@@ -484,6 +507,33 @@ function view(three){
   $("#v2d").classList.toggle("on", !three); $("#v3d").classList.toggle("on", three);
 }
 $("#v2d").onclick = () => view(false); $("#v3d").onclick = () => view(true);
+// ---- tabs: everything behind one address, with #3d, #graf, #twins for direct links ----
+let twinsTimer = 0;
+function tab(name){
+  if (!["console", "3d", "graf", "twins"].includes(name)) name = "console";
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  document.querySelectorAll(".page").forEach(p => p.classList.toggle("on", p.id === "page-" + name));
+  const fr = document.querySelector(`#page-${name} iframe`);
+  if (fr && !fr.src) fr.src = name === "3d" ? "3d" : `${L.grafana_url}/d/arqa-vent-charts?orgId=1&kiosk&refresh=5s`;
+  clearInterval(twinsTimer);
+  if (name === "twins") { loadTwins(); twinsTimer = setInterval(loadTwins, 3000); }
+  if (location.hash !== "#" + name) history.replaceState(null, "", name === "console" ? location.pathname : "#" + name);
+}
+async function loadTwins(){
+  try {
+    const r = await (await fetch("api/twins")).json();
+    const items = (r.items || []).sort((a, b) => a.thingId.localeCompare(b.thingId));
+    $("#twins-meta").textContent = `${items.length} двойников kz.arqa:* — прочитано из Ditto REST API (/api/2/search/things), обновляется каждые 3 с`;
+    $("#twins").innerHTML = `<tr><th>thingId</th><th>Название</th><th>Тип</th><th>Родитель</th><th>Признаки (features)</th></tr>` +
+      items.map(t => { const a = t.attributes || {}, f = t.features || {};
+        const feats = Object.entries(f).map(([k, v]) => { const p = v.properties || {};
+          const val = typeof p.value === "number" ? (Math.round(p.value * 1000) / 1000) : (p.value ?? "");
+          return `<span class="f">${k} = <b>${String(val).slice(0, 60)}</b>${p.unit ? " " + p.unit : ""}</span>`; }).join("");
+        return `<tr><td><code>${t.thingId}</code></td><td>${a.name || ""}</td><td class="muted">${a.kind || ""}</td><td class="muted">${(a._parents || "").replace("kz.arqa:", "")}</td><td>${feats}</td></tr>`; }).join("");
+  } catch (e) { $("#twins-meta").textContent = "Ditto недоступен"; }
+}
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => tab(b.dataset.tab));
+addEventListener("hashchange", () => tab(location.hash.slice(1)));
 $("#pause").onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify({paused: !S.paused})}).then(poll);
 [1, 10, 30, 60].forEach(s => { const b = document.createElement("button"); b.textContent = "×" + s; b.dataset.s = s;
   b.onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify({speed:s})}).then(poll); $("#speeds").appendChild(b); });
@@ -492,6 +542,7 @@ $("#pause").onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify
   $("#title").textContent = "Пульт диспетчера · " + L.mine.name;
   $("#fire-site").innerHTML = Object.entries(L.fire_sites).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("");
   build(); poll(); setInterval(poll, 1000); requestAnimationFrame(frame);
+  tab(location.hash.slice(1));
 })();
 </script>
 </body>

@@ -101,7 +101,7 @@ def options(m):
         if fire:
             opts.append({"id": "fight_evac", "name": "Вывести людей и тушить пожар (ВГК)",
                          "cmds": [ev, {"cmd": "extinguish"}]})
-    elif not any(o["id"] == "reserve_evac" for o in opts):
+    elif not any(o["id"] == "reserve_evac" for o in opts) and any(a["level"] == "crit" for a in alerts(m)):
         opts.append({"id": "evac", "name": "Вывести всех людей", "cmds": [ev]})
     return opts
 
@@ -187,6 +187,8 @@ def forecast(m, horizon_min=60):
 
 def explain(best, results, base_h=60):
     base = next((r for r in results if r["id"] == "nothing"), None)
+    if len(results) == 1:
+        return "Отклонений от норм нет: менять режим проветривания и выводить людей не требуется."
     parts = [f"Лучший вариант на {len(results)} рассчитанных: «{best['name']}»."]
     if base and base is not best:
         if base["people_incapacitated"] > best["people_incapacitated"]:

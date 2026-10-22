@@ -29,6 +29,8 @@ services:
       DITTO_PASSWORD: ${DITTO_PASSWORD}
       SIM_SPEEDUP: ${VENT_SPEEDUP:-10}
       HTTP_PORT: "8095"
+      # Where the browser finds Grafana, for the console's «Графики» tab.
+      GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
     ports:
       - "${OPENEGIZ_BIND:-127.0.0.1}:${VENT_PORT:-8095}:8095"
     healthcheck:
@@ -49,5 +51,7 @@ services:
       # away; Grafana listens on 127.0.0.1 only (OPENEGIZ_BIND).
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # The console at :8095 shows the charts dashboard in its «Графики» tab.
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
     volumes:
       - ../../team/vent/grafana:/var/lib/grafana/team-dashboards:ro

@@ -86,7 +86,8 @@ def series(title, things, feature, unit, x, y, w=12, h=8, limits=(), names=None,
     }
 
 
-def build():
+def build(embeds=True):
+    """embeds=False: charts only, for the «Графики» tab of the console (no console inside the console)."""
     S = {s["id"]: s for s in CFG["sensors"]}
     B = {b["id"]: b for b in CFG["branches"]}
     panels = []
@@ -112,6 +113,13 @@ def build():
     panels.append(text_stat("Рекомендация советника (прогноз на 60 мин)", "advisor", "recommendation", 0, y, 12, 3))
     panels.append(text_stat("Главная тревога", "advisor", "top_alert", 12, y, 12, 3))
     y += 3
+    if embeds:
+        y = _embeds(panels, y)
+    ch4 = [s for s in S if S[s]["type"] == "CH4"]
+    return _charts(panels, y, S, B, ch4, embeds)
+
+
+def _embeds(panels, y):
     panels.append({
         "id": nid(), "type": "text", "title": "Пульт диспетчера: разрез шахты, сценарии, советник",
         "gridPos": {"x": 0, "y": y, "w": 24, "h": 30},
@@ -125,8 +133,10 @@ def build():
         "options": {"mode": "html", "content":
                     '<iframe src="${console_url}3d?embed=1" style="width:100%;height:100%;border:0;min-height:560px"></iframe>'},
     })
-    y += 20
-    ch4 = [s for s in S if S[s]["type"] == "CH4"]
+    return y + 20
+
+
+def _charts(panels, y, S, B, ch4, embeds):
     co = [s for s in S if S[s]["type"] == "CO"]
     panels.append(series("Метан на датчиках, %", ch4, "reading", "percent", 0, y, limits=[(1.0, "#e8b33a"), (2.0, "#e5484d")],
                          names=[(s, S[s]["name"].replace("Метан, ", "")) for s in ch4], decimals=2))
@@ -151,14 +161,14 @@ def build():
     panels.append(series("Электроэнергия участков (1 = есть, 0 = отключена)", dists, "power", "none", 16, y, w=8,
                          names=[(d, v["name"]) for d, v in CFG["districts"].items()]))
     return {
-        "uid": "arqa-vent",
-        "title": "Шахта «Арқа-1»: вентиляция и газ",
+        "uid": "arqa-vent" if embeds else "arqa-vent-charts",
+        "title": "Шахта «Арқа-1»: вентиляция и газ" + ("" if embeds else " · графики"),
         "tags": ["openegiz", "mine", "ventilation", "methane"],
         "timezone": "browser", "schemaVersion": 39, "version": 1, "refresh": "5s",
         "time": {"from": "now-30m", "to": "now"},
         "description": "Цифровой двойник вентиляции и газовой безопасности угольной шахты. Данные: team/vent/simulator.py "
                        "→ MQTT → Ditto → Telegraf → InfluxDB.",
-        "templating": {"list": [{
+        "templating": {"list": [] if not embeds else [{
             "name": "console_url", "label": "Адрес пульта", "type": "textbox",
             "query": "http://localhost:8095/", "current": {"text": "http://localhost:8095/", "value": "http://localhost:8095/"},
         }]},
@@ -167,6 +177,7 @@ def build():
 
 
 if __name__ == "__main__":
-    out = os.path.join(HERE, "dashboard.json")
-    json.dump(build(), open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    print("written", out)
+    for name, embeds in (("dashboard.json", True), ("dashboard-charts.json", False)):
+        out = os.path.join(HERE, name)
+        json.dump(build(embeds), open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        print("written", out)

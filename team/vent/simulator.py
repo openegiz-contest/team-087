@@ -43,6 +43,7 @@ DITTO_URL = os.environ.get("DITTO_URL", "http://localhost:8080").rstrip("/")
 DITTO_USER = os.environ.get("DITTO_USER", "ditto")
 DITTO_PASSWORD = os.environ.get("DITTO_PASSWORD", "")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "8095"))
+GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://localhost:3000").rstrip("/")
 SPEEDUP = float(os.environ.get("SIM_SPEEDUP", "10"))
 PUBLISH_S = float(os.environ.get("PUBLISH_INTERVAL", "3"))
 FORECAST_S = float(os.environ.get("FORECAST_INTERVAL", "15"))
@@ -474,6 +475,7 @@ def layout():
         "fans": CFG["fan_station"]["units"],
         "limits": CFG["limits"],
         "crews": CFG["brigades"],
+        "grafana_url": GRAFANA_URL,
     }
 
 

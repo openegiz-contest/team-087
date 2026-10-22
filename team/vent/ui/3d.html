@@ -84,6 +84,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const $ = (s) => document.querySelector(s);
 if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
+if (window.self !== window.top) document.querySelector('a[href="./"]').style.display = "none";  // already inside the console
 
 // ---- world: 1 unit = 100 m along the strike, depth exaggerated 1.6x ---------------------
 const S = 0.01, VEX = 1.6, X0 = 1500;
