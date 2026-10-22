@@ -1,4 +1,4 @@
-.PHONY: up down ps logs smoke clean example-mine example-mine-stop install uninstall status endpoints upgrade upload-build generate-data copy-build unity-demo check-secrets check-public-host
+.PHONY: up down ps logs smoke clean mine mine-test mine-stop example-mine example-mine-stop install uninstall status endpoints upgrade upload-build generate-data copy-build unity-demo check-secrets check-public-host
 
 # ---------------------------------------------------------------------------
 # Docker Compose deployment (laptops, CI, contest judges): deploy/compose/
@@ -9,7 +9,10 @@ COMPOSE_BASE := docker compose -f deploy/compose/docker-compose.yml
 # `make clean` forgets it.
 MINE_MARKER  := deploy/compose/.example-mine
 MINE_COMPOSE := examples/mine/compose.yml
-COMPOSE := $(COMPOSE_BASE)$(if $(wildcard $(MINE_MARKER)), -f $(MINE_COMPOSE))
+# Same for the Team's mine «Арқа-1» (team/vent), started by `make mine`.
+TEAM_MARKER  := deploy/compose/.team-mine
+TEAM_COMPOSE := team/vent/compose.yml
+COMPOSE := $(COMPOSE_BASE)$(if $(wildcard $(MINE_MARKER)), -f $(MINE_COMPOSE))$(if $(wildcard $(TEAM_MARKER)), -f $(TEAM_COMPOSE))
 
 ## Start the whole platform with Docker Compose (first run: generates credentials)
 up:
@@ -45,6 +48,24 @@ example-mine: up
 	@touch $(MINE_MARKER)
 	@echo "Example Mine running: Grafana -> Dashboards -> OpenEgiz Examples -> Example Mine"
 
+## Run the Team's mine «Арқа-1»: ventilation and gas twin, dispatcher's console, dashboard
+mine: up
+	$(COMPOSE_BASE) -f $(TEAM_COMPOSE) up -d --build --wait --wait-timeout 300
+	@touch $(TEAM_MARKER)
+	@echo ""
+	@echo "Шахта «Арқа-1» запущена:"
+	@echo "  Пульт диспетчера  http://localhost:$${VENT_PORT:-8095}/"
+	@echo "  Grafana           Dashboards -> Шахта Арқа-1 -> Шахта «Арқа-1»: вентиляция и газ"
+
+## Check the mine model's physics and advisor (no platform needed, runs in the mine's image)
+mine-test:
+	docker build -q -t openegiz/arqa-vent:local team/vent >/dev/null
+	docker run --rm openegiz/arqa-vent:local python -m unittest -v test_model
+
+## Stop the mine's twin service (twins and data stay)
+mine-stop:
+	$(COMPOSE_BASE) -f $(TEAM_COMPOSE) stop vent-twin
+
 ## Stop the Example Mine simulator (twins and data stay)
 example-mine-stop:
 	$(COMPOSE_BASE) -f $(MINE_COMPOSE) stop mine-simulator
@@ -52,7 +73,7 @@ example-mine-stop:
 ## Stop the platform and DELETE all its data and credentials
 clean:
 	$(COMPOSE) down -v --remove-orphans
-	rm -f deploy/compose/.env $(MINE_MARKER)
+	rm -f deploy/compose/.env $(MINE_MARKER) $(TEAM_MARKER)
 
 # ---------------------------------------------------------------------------
 # Helm deployment (servers): the chart at the repository root

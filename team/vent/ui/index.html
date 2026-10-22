@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пульт диспетчера: вентиляция и газ</title>
+<style>
+:root{
+  --bg:#0e1419; --panel:#151d24; --panel2:#1b252e; --line:#2a3842; --text:#dbe4ea; --muted:#8a9aa6;
+  --ok:#3fb27f; --warn:#e8b33a; --crit:#e5484d; --info:#4aa3df; --accent:#4aa3df; --rock:#1a2228;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:600}
+.badge{padding:2px 8px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:12px;white-space:nowrap}
+.lamp{width:12px;height:12px;border-radius:50%;display:inline-block;vertical-align:-1px;margin-right:6px;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.lamp.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.lamp.crit{background:var(--crit);box-shadow:0 0 10px var(--crit);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.35}}
+.spacer{flex:1}
+button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 9px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.on{background:var(--accent);border-color:var(--accent);color:#06121c}
+button.danger{border-color:#6b2a2d;background:#2a1719}
+button.danger:hover{border-color:var(--crit)}
+button.go{border-color:#24533d;background:#14271e}
+select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 500px;gap:10px;padding:10px}
+@media (max-width:1100px){main{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;font-weight:600}
+#scene{width:100%;height:auto;display:block;background:linear-gradient(#0f1a22 0,#0f1a22 13%,var(--rock) 13%)}
+.tabs{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.kpi .l{color:var(--muted);font-size:11px}
+.kpi .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .v small{font-size:12px;color:var(--muted);font-weight:400}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:500}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.best td{background:#13281f}
+.alert{padding:5px 8px;border-left:3px solid var(--warn);background:var(--panel2);margin-bottom:4px;border-radius:0 4px 4px 0}
+.alert.crit{border-color:var(--crit)}
+.alert .rule{color:var(--muted);font-size:11px;float:right;margin-left:6px}
+#log{max-height:210px;overflow:auto;font-size:12px}
+#log div{padding:2px 0;border-bottom:1px dashed #22303a}
+#log .crit{color:#ff8b8e} #log .warn{color:#f0cb6b} #log .ok{color:#7fd6a8}
+.muted{color:var(--muted)}
+.fed{height:6px;background:#26323b;border-radius:3px;overflow:hidden;min-width:50px}
+.fed i{display:block;height:100%;background:var(--ok)}
+.legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.legend .bar{width:180px;height:10px;border-radius:2px}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:800px){.charts{grid-template-columns:1fr}}
+svg text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.explain{background:#13281f;border:1px solid #24533d;border-radius:6px;padding:7px 9px;margin:6px 0}
+input[type=range]{width:120px}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Пульт диспетчера</h1>
+  <span class="badge"><span id="lamp" class="lamp"></span><span id="level">Норма</span></span>
+  <span class="badge">Сценарий: <b id="scenario">—</b></span>
+  <span class="badge">Время модели: <b id="clock">0:00</b></span>
+  <span class="spacer"></span>
+  <span class="muted">Скорость:</span>
+  <span id="speeds"></span>
+  <button id="pause">⏸</button>
+  <span class="badge" id="ditto" title="Команды идут через двойник dispatch в Eclipse Ditto">Ditto: …</span>
+</header>
+<main>
+<section>
+  <div class="kpis">
+    <div class="kpi"><div class="l">Воздух в шахту</div><div class="v" id="k-air">—</div></div>
+    <div class="kpi"><div class="l">Депрессия ГВУ</div><div class="v" id="k-dep">—</div></div>
+    <div class="kpi"><div class="l">CH₄ исходящая шахты</div><div class="v" id="k-ch4">—</div></div>
+    <div class="kpi"><div class="l">CH₄ максимум</div><div class="v" id="k-ch4max">—</div></div>
+    <div class="kpi"><div class="l">CO максимум</div><div class="v" id="k-co">—</div></div>
+    <div class="kpi"><div class="l">Людей под землёй</div><div class="v" id="k-people">—</div></div>
+    <div class="kpi"><div class="l">В опасности</div><div class="v" id="k-risk">—</div></div>
+  </div>
+  <div class="card">
+    <div class="tabs">
+      <b style="margin-right:6px">Разрез шахты</b>
+      <button data-layer="ch4" class="on">Метан</button>
+      <button data-layer="co">CO</button>
+      <button data-layer="vis">Дым</button>
+      <button data-layer="air">Воздух</button>
+      <span class="spacer"></span>
+      <span class="legend"><span id="lg-min"></span><span class="bar" id="lg-bar"></span><span id="lg-max"></span></span>
+    </div>
+    <svg id="scene" viewBox="-220 -130 3480 1140" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="muted" style="margin-top:6px">Разрез не в масштабе по глубине. Стрелки — направление и скорость воздуха; цифры у датчиков — их показания; человечки — бригады (цифра — число людей).</div>
+  </div>
+  <div class="charts">
+    <div class="card"><h2>Метан на датчиках, %</h2><svg id="ch-ch4" viewBox="0 0 600 220" style="width:100%"></svg></div>
+    <div class="card"><h2>CO на датчиках, ppm</h2><svg id="ch-co" viewBox="0 0 600 220" style="width:100%"></svg></div>
+  </div>
+  <div class="card"><h2>Бригады</h2><table id="crews"></table></div>
+</section>
+<aside>
+  <div class="card">
+    <h2>Что если: сценарии</h2>
+    <div class="row">
+      <button class="danger" data-cmd='{"cmd":"fan_trip"}'>Отказ главного вентилятора</button>
+      <button class="danger" data-cmd='{"cmd":"methane_rise","arg":"d-l1","factor":2.0}'>Рост метана в лаве 1-Ю</button>
+    </div>
+    <div class="row">
+      <button class="danger" data-cmd='{"cmd":"co_rise"}'>Рост CO (самонагревание)</button>
+      <select id="fire-site"></select>
+      <button class="danger" id="fire-btn">Пожар</button>
+    </div>
+    <div class="row"><button data-cmd='{"cmd":"reset"}'>↺ Сброс в норму</button>
+      <span class="muted">Сценарии запускаются на работающем стенде, без изменения кода.</span></div>
+  </div>
+  <div class="card">
+    <h2>Советник: прогноз на 60 мин</h2>
+    <div id="alerts"></div>
+    <div id="explain" class="explain" style="display:none"></div>
+    <table id="forecast"></table>
+    <div class="muted" id="fc-meta" style="margin-top:4px"></div>
+  </div>
+  <div class="card">
+    <h2>Управление</h2>
+    <div class="row"><b style="width:100%">Главная вентиляторная установка</b></div>
+    <div id="fans"></div>
+    <div class="row">
+      <button id="rev-btn">Реверс</button>
+      <button data-cmd='{"cmd":"fan_repair"}'>Устранить неисправность</button>
+    </div>
+    <div class="row" style="margin-top:8px"><b style="width:100%">Участки: электроэнергия и люди</b></div>
+    <div id="districts"></div>
+    <div class="row"><button class="go" data-cmd='{"cmd":"evacuate","arg":"all"}'>Вывести всех людей</button>
+      <button data-cmd='{"cmd":"extinguish"}'>Тушить пожар (ВГК)</button></div>
+    <div class="row" style="margin-top:8px"><b style="width:100%">Вентиляционные регуляторы</b></div>
+    <div id="regs"></div>
+  </div>
+  <div class="card"><h2>Журнал</h2><div id="log"></div></div>
+</aside>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+let L = null, S = null, layer = "ch4";
+const hist = [];  // [{t, s:{id:value}}], kept by the service
+let pollCount = 0;
+
+// ---- depth mapping: stretch the workings band, squeeze the shafts --------
+function Y(y){ return y > -420 ? -y * 0.25 : 105 + (-420 - y) * 2.0; }
+function el(tag, attrs, parent){ const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+
+// ---- colour maps -----------------------------------------------------------
+function lerp(a, b, t){ return a + (b - a) * t; }
+function ramp(stops, v){
+  if (v <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) if (v <= stops[i][0]) {
+    const [v0, c0] = stops[i-1], [v1, c1] = stops[i], t = (v - v0) / (v1 - v0);
+    return `rgb(${Math.round(lerp(c0[0],c1[0],t))},${Math.round(lerp(c0[1],c1[1],t))},${Math.round(lerp(c0[2],c1[2],t))})`;
+  }
+  return `rgb(${stops.at(-1)[1].join(",")})`;
+}
+const MAPS = {
+  ch4: {stops: [[0,[52,140,120]],[0.5,[140,190,80]],[1.0,[240,190,60]],[2.0,[235,95,50]],[5.0,[220,40,70]],[8,[190,60,220]]],
+        min: "0%", max: "≥5% взрывоопасно", vmax: 8},
+  co:  {stops: [[0,[70,110,140]],[17,[230,200,70]],[50,[240,130,50]],[200,[220,50,60]],[600,[150,20,40]]],
+        min: "0 ppm", max: "≥200 ppm", vmax: 600},
+  vis: {stops: [[0,[25,20,18]],[2,[70,60,55]],[10,[140,130,120]],[30,[90,120,140]],[99,[70,110,140]]],
+        min: "видимость 0 м", max: "≥30 м", vmax: 99, invert: true},
+  air: {stops: [[0,[60,50,60]],[0.5,[60,90,150]],[2,[70,150,210]],[4,[120,210,240]],[8,[220,240,255]]],
+        min: "0 м/с", max: "8 м/с", vmax: 8},
+};
+function legend(){
+  const m = MAPS[layer]; const st = m.stops;
+  const g = st.map(([v, c]) => `rgb(${c.join(",")}) ${(v / m.vmax * 100).toFixed(0)}%`).join(",");
+  $("#lg-bar").style.background = `linear-gradient(90deg,${g})`;
+  $("#lg-min").textContent = m.min; $("#lg-max").textContent = m.max;
+}
+
+// ---- geometry ---------------------------------------------------------------
+const geo = {};  // branch id -> {pts:[[x,y]], len, cum:[]}
+function branchPts(b){
+  const n1 = L.nodes[b.from], n2 = L.nodes[b.to];
+  const raw = b.points ? b.points.slice() : [[n1.x, n1.y], [n2.x, n2.y]];
+  raw[0] = [n1.x, n1.y]; raw[raw.length-1] = [n2.x, n2.y];
+  return raw.map(([x, y]) => [x, Y(y)]);
+}
+function along(id, f){
+  const g = geo[id]; const d = Math.max(0, Math.min(1, f)) * g.len;
+  for (let i = 1; i < g.pts.length; i++) if (d <= g.cum[i] || i === g.pts.length - 1) {
+    const t = (d - g.cum[i-1]) / Math.max(1e-6, g.cum[i] - g.cum[i-1]);
+    return [lerp(g.pts[i-1][0], g.pts[i][0], t), lerp(g.pts[i-1][1], g.pts[i][1], t)];
+  }
+}
+function pathD(pts){ return "M" + pts.map(p => p.join(",")).join("L"); }
+
+let segs = {}, flows = {}, sensorsG = {}, crewsG = {}, fanG = [], fireG = null, powerG = {};
+function build(){
+  const svg = $("#scene"); svg.innerHTML = "";
+  // sky, ground, surface buildings
+  el("rect", {x:-200, y:-110, width:3450, height:110, fill:"#0f1a22"}, svg);
+  el("line", {x1:-200, y1:0, x2:3250, y2:0, stroke:"#5b6b4a", "stroke-width":4}, svg);
+  for (let x = -200; x < 3250; x += 40) el("line", {x1:x, y1:4, x2:x-14, y2:18, stroke:"#2f3a2b", "stroke-width":2}, svg);
+  const bands = el("g", {opacity:0.5}, svg);
+  [[-200,"#1f2a30"],[-420,"#1c252b"],[-600,"#1f2a30"],[-760,"#1c252b"]].forEach(([y,c]) => el("line",{x1:-200,y1:Y(y),x2:3250,y2:Y(y),stroke:c,"stroke-width":2,"stroke-dasharray":"30 20"},bands));
+  el("text", {x:-190, y:-80, fill:"#8a9aa6", "font-size":36}, svg).textContent = "Поверхность";
+  // headframe over the intake shaft
+  el("path", {d:"M-60,0 L0,-95 L60,0 M-35,-40 L35,-40", stroke:"#8a9aa6", "stroke-width":5, fill:"none"}, svg);
+  el("circle", {cx:0, cy:-95, r:12, fill:"none", stroke:"#8a9aa6", "stroke-width":4}, svg);
+  el("text", {x:80, y:-55, fill:"#dbe4ea", "font-size":34}, svg).textContent = "Клетевой ствол · свежая струя";
+  // fan building over the upcast shaft
+  el("rect", {x:2890, y:-80, width:220, height:80, rx:6, fill:"#1d2a33", stroke:"#3c4d59", "stroke-width":3}, svg);
+  el("text", {x:2860, y:-95, fill:"#dbe4ea", "font-size":34, "text-anchor":"end"}, svg).textContent = "ГВУ: 2 × ВЦД-31,5М2";
+  L.fans.forEach((f, i) => {
+    const g = el("g", {transform:`translate(${2945 + i * 110},-40)`}, svg);
+    el("circle", {r:30, fill:"#0f171d", stroke:"#4aa3df", "stroke-width":4}, g);
+    const rot = el("g", {}, g);
+    for (let k = 0; k < 6; k++) el("path", {d:"M0,0 L24,-6 L24,6 Z", fill:"#9fc7e0", transform:`rotate(${k*60})`}, rot);
+    el("circle", {r:5, fill:"#dbe4ea"}, g);
+    const lbl = el("text", {y:72, x:i ? -10 : 10, "text-anchor":i ? "start" : "end", fill:"#c2ced6", "font-size":24}, g);
+    lbl.textContent = f.id === "fan-1" ? "№1" : "№2";
+    fanG.push({g, rot, ang:0, ring:g.firstChild, lbl});
+  });
+  // workings
+  const segLayer = el("g", {}, svg), flowLayer = el("g", {}, svg);
+  L.branches.forEach(b => {
+    const pts = branchPts(b); const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
+    geo[b.id] = {pts, cum, len: cum.at(-1)};
+    const w = b.kind === "shaft" ? 34 : b.kind === "longwall" ? 26 : b.kind === "leak" ? 12 : 18;
+    el("path", {d: pathD(pts), stroke:"#0a0f12", "stroke-width": w + 8, fill:"none", "stroke-linecap":"round"}, segLayer);
+    const n = Math.max(2, Math.round(b.length / 50));
+    segs[b.id] = [];
+    for (let i = 0; i < n; i++) {
+      const a = along(b.id, i / n), c = along(b.id, (i + 1) / n);
+      segs[b.id].push(el("line", {x1:a[0], y1:a[1], x2:c[0], y2:c[1], stroke:"#345", "stroke-width": w,
+        "stroke-linecap": i === 0 || i === n-1 ? "round" : "butt"}, segLayer));
+    }
+    const fl = el("path", {d: pathD(pts), stroke:"rgba(255,255,255,.75)", "stroke-width": 3, fill:"none",
+      "stroke-dasharray": "14 46"}, flowLayer);
+    flows[b.id] = {path: fl, off: 0, v: 0};
+    if (b.kind === "leak") fl.setAttribute("stroke-dasharray", "8 60");
+    const hit = el("path", {d: pathD(pts), stroke:"transparent", "stroke-width": w + 14, fill:"none"}, flowLayer);
+    const t = el("title", {}, hit); t.textContent = b.name; segs[b.id].title = t;
+  });
+  // labels
+  const lab = (id, f, dy, text, anchor) => { const p = along(id, f);
+    el("text", {x:p[0], y:p[1] + dy, fill:"#c2ced6", "font-size":30, "text-anchor":anchor || "middle"}, svg).textContent = text; };
+  lab("w-main", .45, -48, "Главные откаточные штреки");
+  lab("w-l1-conv", .45, 40, "Конв. штрек лавы 1-Ю");
+  lab("w-l2-conv", .55, 42, "Конв. штрек лавы 2-С");
+  lab("w-l1-ret", .5, -24, "Вент. штрек лавы 1-Ю");
+  lab("w-l2-ret", .4, 40, "Вент. штрек лавы 2-С");
+  lab("w-other", .5, -18, "Подготовительные забои, камеры, утечки");
+  lab("w-ret-main", .5, -24, "Главный вент. штрек");
+  const lf1 = along("w-l1-face", .5), lf2 = along("w-l2-face", .5);
+  el("text", {x:lf1[0] - 30, y:lf1[1], fill:"#ffd38a", "font-size":34, "text-anchor":"end", "font-weight":600}, svg).textContent = "Лава 1-Ю";
+  el("text", {x:lf2[0] + 30, y:lf2[1] + 10, fill:"#ffd38a", "font-size":34, "font-weight":600}, svg).textContent = "Лава 2-С";
+  const sh = along("w-shaft-out", .5); el("text", {x:sh[0] - 30, y:sh[1], fill:"#c2ced6", "font-size":30, "text-anchor":"end"}, svg).textContent = "Вентиляционный ствол";
+  // exits
+  Object.entries(L.nodes).forEach(([id, n]) => { if (!n.exit) return;
+    const g = el("g", {transform:`translate(${n.x},${Y(n.y)})`}, svg);
+    el("rect", {x:-60, y:-80, width:120, height:36, rx:5, fill:"#14532d", stroke:"#3fb27f"}, g);
+    el("text", {y:-54, "text-anchor":"middle", fill:"#bff0d3", "font-size":24, "font-weight":700}, g).textContent = "ВЫХОД";
+  });
+  // district power markers
+  [["d-l1","w-l1-conv",.15],["d-l2","w-l2-conv",.75]].forEach(([d, b, f]) => { const p = along(b, f);
+    const g = el("g", {transform:`translate(${p[0]},${p[1] + 58})`}, svg);
+    const r = el("rect", {x:-150, y:-24, width:300, height:42, rx:6, fill:"#14271e", stroke:"#3fb27f"}, g);
+    const t = el("text", {y:7, "text-anchor":"middle", fill:"#bff0d3", "font-size":26}, g); t.textContent = "⚡ питание";
+    powerG[d] = {r, t};
+  });
+  // sensors
+  L.sensors.forEach(s => { const p = along(s.branch, s.pos);
+    const up = s.type === "AIR" ? 1 : -1;
+    const g = el("g", {transform:`translate(${p[0]},${p[1]})`}, svg);
+    el("line", {x1:0, y1:0, x2:0, y2:up * 26, stroke:"#8a9aa6", "stroke-width":2}, g);
+    const box = el("rect", {x:-62, y: up > 0 ? 24 : -66, width:124, height:42, rx:6, fill:"#0f171d", stroke:"#8a9aa6", "stroke-width":2}, g);
+    const tx = el("text", {y: up > 0 ? 55 : -36, "text-anchor":"middle", fill:"#dbe4ea", "font-size":28, "font-weight":600}, g);
+    el("circle", {r:6, fill:"#dbe4ea"}, g);
+    const t = el("title", {}, g); t.textContent = s.name;
+    sensorsG[s.id] = {box, tx, type: s.type};
+  });
+  // fire marker
+  fireG = el("g", {opacity:0}, svg);
+  el("circle", {r:40, fill:"rgba(255,90,30,.25)"}, fireG);
+  el("text", {y:16, "text-anchor":"middle", "font-size":46}, fireG).textContent = "🔥";
+  // crews
+  L.crews.forEach(c => { const g = el("g", {}, svg);
+    el("circle", {r:28, fill:"#e8b33a", stroke:"#0a0f12", "stroke-width":3}, g);
+    el("path", {d:"M0,-12 a5,5 0 1,1 0.1,0 M-8,10 L0,-4 L8,10 M-9,0 L9,0", stroke:"#0a0f12", "stroke-width":3, fill:"#0a0f12"}, g);
+    const n = el("text", {x:30, y:-18, fill:"#ffe5a8", "font-size":30, "font-weight":700}, g);
+    const t = el("title", {}, g); t.textContent = c.name;
+    crewsG[c.id] = {g, n, circle: g.firstChild};
+  });
+  legend();
+}
+
+// ---- live update -------------------------------------------------------------
+function colourFor(b, i){
+  if (layer === "ch4") return ramp(MAPS.ch4.stops, b.ch4[i]);
+  if (layer === "co") return ramp(MAPS.co.stops, b.co[i]);
+  if (layer === "vis") return ramp(MAPS.vis.stops, b.vis[i]);
+  return ramp(MAPS.air.stops, Math.abs(b.v));
+}
+function fmtClock(t){ const m = Math.floor(t / 60), h = Math.floor(m / 60);
+  return `${h}:${String(m % 60).padStart(2, "0")}`; }
+function render(){
+  if (!S) return;
+  $("#clock").textContent = fmtClock(S.t);
+  $("#scenario").textContent = S.scenario;
+  const lvl = Math.max(0, ...S.alerts.map(a => a.level === "crit" ? 2 : a.level === "warn" ? 1 : 0));
+  $("#lamp").className = "lamp " + (lvl === 2 ? "crit" : lvl === 1 ? "warn" : "");
+  $("#level").textContent = lvl === 2 ? "Авария" : lvl === 1 ? "Внимание" : "Норма";
+  $("#ditto").textContent = S.ditto_ok === false ? "Ditto: нет связи" : "Ditto: двойники синхронны";
+  $("#ditto").style.borderColor = S.ditto_ok === false ? "var(--crit)" : "var(--line)";
+  $("#pause").textContent = S.paused ? "▶" : "⏸";
+  document.querySelectorAll("#speeds button").forEach(b => b.classList.toggle("on", +b.dataset.s === S.speed));
+  // KPIs
+  const air = Math.abs(S.fan_station.Q) * 60;
+  $("#k-air").innerHTML = `${Math.round(air).toLocaleString("ru")} <small>м³/мин</small>`;
+  $("#k-dep").innerHTML = `${Math.abs(S.fan_station.h).toLocaleString("ru")} <small>Па · ${S.fan_mode}</small>`;
+  const mine = S.sensors.find(s => s.id === "s-ch4-mine").value;
+  $("#k-ch4").innerHTML = `${mine.toFixed(2)} <small>% / ≤0,75</small>`;
+  $("#k-ch4").style.color = mine >= 0.75 ? "var(--crit)" : "";
+  $("#k-ch4max").innerHTML = `${S.summary.max_ch4.toFixed(2)} <small>%</small>`;
+  $("#k-ch4max").style.color = S.summary.max_ch4 >= 5 ? "#d070ff" : S.summary.max_ch4 >= 2 ? "var(--crit)" : S.summary.max_ch4 >= 1 ? "var(--warn)" : "";
+  $("#k-co").innerHTML = `${Math.round(S.summary.max_co)} <small>ppm</small>`;
+  $("#k-co").style.color = S.summary.max_co >= 50 ? "var(--crit)" : S.summary.max_co >= 17 ? "var(--warn)" : "";
+  $("#k-people").innerHTML = `${S.summary.people_underground} <small>чел.</small>`;
+  $("#k-risk").innerHTML = `${S.summary.people_at_risk} <small>чел.</small>`;
+  $("#k-risk").style.color = S.summary.people_at_risk ? "var(--crit)" : "";
+  // scene
+  S.branches.forEach(b => {
+    const ss = segs[b.id]; ss.forEach((ln, i) => ln.setAttribute("stroke", colourFor(b, i)));
+    ss.title.textContent = `${L.branches.find(x => x.id === b.id).name}\nQ = ${b.Q.toFixed(1)} м³/с, v = ${Math.abs(b.v).toFixed(2)} м/с\nCH₄ max ${Math.max(...b.ch4).toFixed(2)}%, CO max ${Math.round(Math.max(...b.co))} ppm`;
+    flows[b.id].v = b.v;
+  });
+  S.sensors.forEach(s => { const g = sensorsG[s.id];
+    const v = s.value; let c = "#8a9aa6";
+    if (g.type === "CH4") { g.tx.textContent = v.toFixed(2) + "%"; c = v >= 1 ? "#e5484d" : v >= 0.8 ? "#e8b33a" : "#3fb27f"; }
+    else if (g.type === "CO") { g.tx.textContent = Math.round(v) + " ppm"; c = v >= 50 ? "#e5484d" : v >= 17 ? "#e8b33a" : "#3fb27f"; }
+    else { g.tx.textContent = v.toFixed(1) + " м/с"; c = v < 0.5 ? "#e5484d" : v > 4 ? "#e8b33a" : "#4aa3df"; }
+    g.box.setAttribute("stroke", c);
+  });
+  S.fans.forEach((f, i) => { const fg = fanG[i]; fg.speed = f.speed * (S.fan_mode === "реверс" ? -1 : 1);
+    fg.ring.setAttribute("stroke", f.failed ? "#e5484d" : f.speed > 0.5 ? "#3fb27f" : "#8a9aa6");
+    fg.lbl.textContent = `${f.id === "fan-1" ? "№1" : "№2"} ${f.state}`; });
+  Object.entries(powerG).forEach(([d, g]) => { const on = S.districts[d].power;
+    g.r.setAttribute("fill", on ? "#14271e" : "#2a1719"); g.r.setAttribute("stroke", on ? "#3fb27f" : "#e5484d");
+    g.t.textContent = on ? "⚡ питание есть" : `⛔ обесточен${S.districts[d].power_reason ? " (" + S.districts[d].power_reason + ")" : ""}`; });
+  if (S.fire && !S.fire.out) {
+    const fs = L.fire_sites[S.fire.site]; const p = along(fs.branch, fs.pos);
+    fireG.setAttribute("transform", `translate(${p[0]},${p[1]}) scale(${0.6 + S.fire.hrr_mw / 5 * 0.8})`); fireG.setAttribute("opacity", 1); }
+  else fireG.setAttribute("opacity", 0);
+  S.crews.forEach(c => { const g = crewsG[c.id];
+    const len = L.branches.find(b => b.id === c.branch).length;
+    const p = along(c.branch, c.s / len);
+    g.g.setAttribute("transform", `translate(${p[0]},${p[1]})`);
+    g.g.style.display = c.status === "на поверхности" ? "none" : "";
+    g.n.textContent = c.people;
+    g.circle.setAttribute("fill", c.status.startsWith("потеряли") ? "#e5484d" : c.rescuer_on ? "#c084fc" :
+      c.status === "выходят" || c.status === "в клети" ? "#3fb27f" : "#e8b33a");
+  });
+  renderPanels();
+}
+
+function renderPanels(){
+  // alerts
+  $("#alerts").innerHTML = S.alerts.length ? S.alerts.slice(0, 6).map(a =>
+    `<div class="alert ${a.level}"><span class="rule">${a.rule}</span>${a.text}</div>`).join("") :
+    `<div class="alert" style="border-color:var(--ok)">Параметры в норме (Приказ МИР РК №351)</div>`;
+  const fc = S.forecast;
+  if (fc) {
+    $("#explain").style.display = ""; $("#explain").textContent = fc.explain;
+    $("#forecast").innerHTML = `<tr><th>Вариант решения</th><th title="Человеко-минуты в дыму или CO ≥ 50 ppm">Дым, чел·мин</th><th title="Человеко-минуты в метане ≥ 1%">CH₄, чел·мин</th><th title="Сколько минут метан выше нормы на датчиках">CH₄ &gt; нормы, мин</th><th title="Через сколько минут все выйдут на поверхность">Все вышли</th><th></th></tr>` +
+      fc.options.map(o => `<tr class="${o.id === fc.best ? "best" : ""}"><td>${o.id === fc.best ? "★ " : ""}${o.name}${o.people_incapacitated ? ` <b style="color:var(--crit)">· ${o.people_incapacitated} чел. без способности к самоспасению</b>` : ""}${o.people_in_explosive_gas ? ` <b style="color:#d070ff">· люди во взрывоопасной смеси</b>` : ""}</td>
+        <td class="n">${o.smoke_person_min}</td><td class="n">${o.gas_person_min}</td><td class="n">${o.ch4_over_limit_min}</td>
+        <td class="n">${o.all_out_min != null ? o.all_out_min + " мин" : "—"}</td>
+        <td>${o.cmds.length ? `<button class="go" data-run='${JSON.stringify(o.cmds)}'>Выполнить</button>` : ""}</td></tr>`).join("");
+    $("#fc-meta").textContent = `Рассчитано на модели ${fmtClock(fc.sim_time)} за ${fc.computed_in_s} с: каждый вариант прогнан на копии двойника на ${fc.horizon_min} мин вперёд.`;
+  }
+  // fans
+  $("#fans").innerHTML = S.fans.map(f => `<div class="row"><span style="flex:1">${f.name} <span class="muted">${f.model}</span><br>
+    <b style="color:${f.failed ? "var(--crit)" : f.speed > .5 ? "var(--ok)" : "var(--muted)"}">${f.state}</b>
+    <span class="muted"> · ${f.flow} м³/с · ${f.pressure} Па · ${f.power_kw} кВт</span></span>
+    <button class="go" data-cmd='{"cmd":"fan_start","arg":"${f.id}"}'>Пуск</button>
+    <button data-cmd='{"cmd":"fan_stop","arg":"${f.id}"}'>Стоп</button></div>`).join("");
+  $("#rev-btn").textContent = S.mode_target === "реверс" ? "Вернуть нормальный режим" : "Реверсировать ГВУ";
+  $("#rev-btn").dataset.cmd = JSON.stringify({cmd: S.mode_target === "реверс" ? "fan_normal" : "fan_reverse"});
+  $("#districts").innerHTML = Object.entries(S.districts).map(([d, v]) => `<div class="row"><span style="flex:1">${v.name}<br>
+    <span class="muted">CH₄ ${v.max_ch4.toFixed(2)}% · CO ${Math.round(v.max_co)} ppm · ${v.people} чел.</span></span>
+    ${v.power ? `<button class="danger" data-cmd='{"cmd":"power_off","arg":"${d}"}'>Обесточить</button>` :
+                `<button data-cmd='{"cmd":"power_on","arg":"${d}"}'>Подать питание</button>`}
+    <button class="go" data-cmd='{"cmd":"evacuate","arg":"${d}"}'>Вывести</button></div>`).join("");
+  const regs = S.branches.filter(b => L.branches.find(x => x.id === b.id).regulator);
+  if (!$("#regs").dataset.built) {
+    $("#regs").innerHTML = regs.map(b => `<div class="row"><span style="flex:1">${L.branches.find(x => x.id === b.id).name}</span>
+      <input type="range" min="10" max="100" step="5" value="${Math.round(b.opening * 100)}" data-reg="${b.id}">
+      <span class="muted" id="rv-${b.id}">${Math.round(b.opening * 100)}%</span></div>`).join("");
+    $("#regs").dataset.built = 1;
+    document.querySelectorAll("[data-reg]").forEach(r => {
+      r.oninput = () => $("#rv-" + r.dataset.reg).textContent = r.value + "%";
+      r.onchange = () => cmd({cmd: "regulator", arg: r.dataset.reg, opening: r.value / 100});
+    });
+  } else regs.forEach(b => { const r = document.querySelector(`[data-reg="${b.id}"]`);
+    if (document.activeElement !== r) { r.value = Math.round(b.opening * 100); $("#rv-" + b.id).textContent = r.value + "%"; } });
+  // crews
+  $("#crews").innerHTML = `<tr><th>Бригада</th><th>Чел.</th><th>Состояние</th><th>Где</th><th>CH₄</th><th>CO</th><th title="Доза CO по Пурсеру (FED), 1 = потеря способности к самоспасению">Доза CO</th><th>Самоспасатель</th><th>До выхода</th></tr>` +
+    S.crews.map(c => `<tr><td>${c.name}</td><td class="n">${c.people}</td>
+      <td style="color:${c.status.startsWith("потеряли") ? "var(--crit)" : c.status === "работают" ? "" : "var(--ok)"}">${c.status}${c.rescuer_on ? " · в самоспасателях" : ""}</td>
+      <td>${c.status === "на поверхности" ? "—" : c.location}</td><td class="n">${c.ch4.toFixed(2)}%</td><td class="n">${Math.round(c.co)}</td>
+      <td><div class="fed"><i style="width:${Math.min(100, c.fed * 100)}%;background:${c.fed >= 1 ? "var(--crit)" : c.fed >= .3 ? "var(--warn)" : "var(--ok)"}"></i></div></td>
+      <td class="n">${c.rescuer_left_min} мин</td><td class="n">${c.status === "выходят" ? c.dist + " м" : "—"}</td></tr>`).join("");
+  $("#log").innerHTML = S.events.slice().reverse().map(e => `<div class="${e.level}"><span class="muted">${fmtClock(e.t)}</span> ${e.text}</div>`).join("");
+}
+
+// ---- charts ------------------------------------------------------------------
+const COLORS = ["#4aa3df","#3fb27f","#e8b33a","#e5484d","#c084fc"];
+function chart(svgSel, ids, limits, unit){
+  const svg = $(svgSel); svg.innerHTML = "";
+  if (hist.length < 2) return;
+  const W = 600, H = 220, l = 40, r = 10, t = 10, b = 40;
+  const t0 = hist[0].t, t1 = hist.at(-1).t;
+  let vmax = Math.max(...limits.map(x => x[0]) , ...hist.flatMap(h => ids.map(id => h.s[id] || 0))) * 1.1;
+  const X = tt => l + (tt - t0) / Math.max(1, t1 - t0) * (W - l - r), Yv = v => H - b - v / vmax * (H - t - b);
+  for (let k = 0; k <= 4; k++) { const v = vmax * k / 4;
+    el("line", {x1:l, x2:W-r, y1:Yv(v), y2:Yv(v), stroke:"#22303a"}, svg);
+    el("text", {x:l-4, y:Yv(v)+4, "text-anchor":"end", fill:"#8a9aa6", "font-size":11}, svg).textContent = v < 10 ? v.toFixed(1) : Math.round(v); }
+  limits.forEach(([v, name]) => { if (v > vmax) return;
+    el("line", {x1:l, x2:W-r, y1:Yv(v), y2:Yv(v), stroke:"#e5484d", "stroke-dasharray":"5 4"}, svg);
+    el("text", {x:W-r-2, y:Yv(v)-3, "text-anchor":"end", fill:"#ff8b8e", "font-size":11}, svg).textContent = name; });
+  ids.forEach((id, i) => { const pts = hist.map(h => `${X(h.t).toFixed(1)},${Yv(h.s[id] || 0).toFixed(1)}`).join(" ");
+    el("polyline", {points:pts, fill:"none", stroke:COLORS[i % 5], "stroke-width":2}, svg);
+    const name = L.sensors.find(s => s.id === id).name.replace(/^(Метан|CO), /, "");
+    el("text", {x:l + (i % 3) * 185, y:H - 22 + Math.floor(i / 3) * 14, fill:COLORS[i % 5], "font-size":11}, svg).textContent = "■ " + name; });
+  el("text", {x:l, y:H-36, fill:"#8a9aa6", "font-size":10}, svg).textContent = fmtClock(t0);
+  el("text", {x:W-r, y:H-36, fill:"#8a9aa6", "font-size":10, "text-anchor":"end"}, svg).textContent = fmtClock(t1);
+}
+
+// ---- animation of airflow and fans -------------------------------------------
+let lastFrame = performance.now();
+function frame(now){
+  const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  for (const id in flows) { const f = flows[id];
+    f.off -= f.v * 12 * dt; f.path.setAttribute("stroke-dashoffset", f.off.toFixed(1));
+    f.path.setAttribute("opacity", Math.abs(f.v) < 0.05 ? 0.1 : 0.85); }
+  fanG.forEach(f => { f.ang += (f.speed || 0) * 540 * dt; f.rot.setAttribute("transform", `rotate(${f.ang % 360})`); });
+  requestAnimationFrame(frame);
+}
+
+// ---- API ---------------------------------------------------------------------
+async function cmd(c){
+  try { const r = await fetch("api/command", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(c)});
+    const j = await r.json(); if (c.cmd === "reset") hist.length = 0; poll(); return j; } catch (e) { console.error(e); }
+}
+async function poll(){
+  try { S = await (await fetch("api/state")).json();
+    render();
+    if (++pollCount % 3 === 1) { const h = await (await fetch("api/history")).json(); hist.length = 0; hist.push(...h); }
+    chart("#ch-ch4", ["s-ch4-l1-face","s-ch4-l1-ret","s-ch4-l2-face","s-ch4-l2-ret","s-ch4-mine"], [[1,"1% исходящая участка"],[2,"2% местное скопление"]]);
+    chart("#ch-co", ["s-co-main","s-co-l1-conv","s-co-l2-ret","s-co-mine"], [[17,"ПДК 17 ppm"],[50,"50 ppm"]]);
+  } catch (e) { $("#ditto").textContent = "нет связи с двойником"; }
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-cmd]"); if (b) return cmd(JSON.parse(b.dataset.cmd));
+  const r = e.target.closest("[data-run]"); if (r) { JSON.parse(r.dataset.run).reduce((p, c) => p.then(() => cmd(c)), Promise.resolve()); return; }
+  const l = e.target.closest("[data-layer]"); if (l) { layer = l.dataset.layer;
+    document.querySelectorAll("[data-layer]").forEach(x => x.classList.toggle("on", x === l)); legend(); render(); }
+});
+$("#fire-btn").onclick = () => cmd({cmd:"fire", arg: $("#fire-site").value});
+$("#pause").onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify({paused: !S.paused})}).then(poll);
+[1, 10, 30, 60].forEach(s => { const b = document.createElement("button"); b.textContent = "×" + s; b.dataset.s = s;
+  b.onclick = () => fetch("api/sim", {method:"POST", body:JSON.stringify({speed:s})}).then(poll); $("#speeds").appendChild(b); });
+(async () => {
+  L = await (await fetch("api/layout")).json();
+  $("#title").textContent = "Пульт диспетчера · " + L.mine.name;
+  $("#fire-site").innerHTML = Object.entries(L.fire_sites).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("");
+  build(); poll(); setInterval(poll, 1000); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

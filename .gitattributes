@@ -1,0 +1,4 @@
+# Shell scripts and configs mounted into Linux containers must keep LF endings,
+# also in clones on Windows (core.autocrlf=true breaks them otherwise).
+*.sh text eol=lf
+deploy/compose/** text=auto eol=lf

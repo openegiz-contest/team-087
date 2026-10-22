@@ -1,0 +1,135 @@
+{
+  "mine": {
+    "id": "mine",
+    "name": "Учебная шахта «Арқа-1» (вымышленная)",
+    "namespace": "kz.arqa",
+    "description": "Крыло подземной угольной шахты с двумя лавами, похожее на шахты Карагандинского бассейна (им. Костенко, им. Ленина, Абайская). Проветривание всасывающее, одна ГВУ на вентиляционном стволе, около 12 тыс. м3/мин.",
+    "natural_draft_pa": 120,
+    "sources": {
+      "air": "US EPA CMOP 2013, Pre-feasibility Study for CMM Drainage, ArcelorMittal Karaganda, Table A-2: расходы воздуха по вентстволам 6 830-14 115 м3/мин, CH4 0,1-0,75%",
+      "depth": "Шахта им. Костенко: авария 28.10.2023 на глубине 700 м (МЧС РК, Казправда)",
+      "longwall": "Шахта им. Ленина: лавы 180-210 м (MiningWiki); выемочные столбы до 2100 м (ОВОС шахты им. Костенко, ecoportal.kz)"
+    }
+  },
+  "nodes": {
+    "S_in":  {"name": "Поверхность, устье клетевого ствола", "x": 0,    "y": 0,    "surface": true},
+    "S_out": {"name": "Поверхность, устье вентиляционного ствола", "x": 3000, "y": 0, "surface": true},
+    "N1": {"name": "Околоствольный двор", "x": 0, "y": -700, "exit": true},
+    "N2": {"name": "Распределительный пункт", "x": 500, "y": -700},
+    "N3": {"name": "Нижняя ниша лавы 1-Ю", "x": 1150, "y": -750},
+    "N4": {"name": "Верхняя ниша лавы 1-Ю", "x": 1250, "y": -620},
+    "N5": {"name": "Нижняя ниша лавы 2-С", "x": 1850, "y": -850},
+    "N7": {"name": "Верхняя ниша лавы 2-С", "x": 1950, "y": -650},
+    "N6": {"name": "Сопряжение вентиляционных штреков", "x": 2400, "y": -570},
+    "N8": {"name": "Сопряжение вентиляционного ствола (запасной выход)", "x": 3000, "y": -570,
+           "exit": true, "exit_penalty_s": 1200}
+  },
+  "districts": {
+    "d-main": {"name": "Околоствольный двор и магистрали"},
+    "d-l1":   {"name": "Участок лавы 1-Ю"},
+    "d-l2":   {"name": "Участок лавы 2-С"}
+  },
+  "branches": [
+    {"id": "w-shaft-in",  "name": "Клетевой (воздухоподающий) ствол", "from": "S_in", "to": "N1", "kind": "shaft",
+     "length": 700, "area": 50.0, "R": 0.0040, "district": "d-main"},
+    {"id": "w-main",      "name": "Главные откаточные штреки", "from": "N1", "to": "N2", "kind": "drift",
+     "length": 800, "area": 30.0, "R": 0.0030, "district": "d-main", "conveyor": true},
+    {"id": "w-l1-conv",   "name": "Конвейерный штрек лавы 1-Ю", "from": "N2", "to": "N3", "kind": "drift",
+     "length": 1500, "area": 14.0, "R": 0.40, "district": "d-l1", "conveyor": true},
+    {"id": "w-l1-face",   "name": "Лава 1-Ю", "from": "N3", "to": "N4", "kind": "longwall",
+     "length": 200, "area": 13.0, "R": 0.60, "district": "d-l1", "ch4_m3min": 12.0, "ch4_cutting_share": 0.5},
+    {"id": "w-l1-ret",    "name": "Вентиляционный штрек лавы 1-Ю", "from": "N4", "to": "N6", "kind": "drift",
+     "length": 1600, "area": 13.0, "R": 0.52, "district": "d-l1", "ch4_m3min": 8.0, "ch4_cutting_share": 0.0,
+     "regulator": true, "regulator_opening": 0.6},
+    {"id": "w-l2-conv",   "name": "Конвейерный штрек лавы 2-С", "from": "N2", "to": "N5", "kind": "drift",
+     "length": 2000, "area": 14.0, "R": 0.70, "district": "d-l2", "conveyor": true,
+     "points": [[500, -700], [1850, -850]]},
+    {"id": "w-l2-face",   "name": "Лава 2-С", "from": "N5", "to": "N7", "kind": "longwall",
+     "length": 200, "area": 13.0, "R": 0.80, "district": "d-l2", "ch4_m3min": 9.0, "ch4_cutting_share": 0.5},
+    {"id": "w-l2-ret",    "name": "Вентиляционный штрек лавы 2-С", "from": "N7", "to": "N6", "kind": "drift",
+     "length": 1200, "area": 13.0, "R": 0.66, "district": "d-l2", "ch4_m3min": 6.0, "ch4_cutting_share": 0.0,
+     "regulator": true, "regulator_opening": 0.6},
+    {"id": "w-other",     "name": "Подготовительные забои, камеры и утечки", "from": "N2", "to": "N6", "kind": "leak",
+     "length": 1900, "area": 20.0, "R": 0.37, "district": "d-main", "ch4_m3min": 10.0,
+     "points": [[500, -700], [500, -470], [2350, -470], [2400, -570]]},
+    {"id": "w-ret-main",  "name": "Главный вентиляционный штрек", "from": "N6", "to": "N8", "kind": "drift",
+     "length": 900, "area": 30.0, "R": 0.0030, "district": "d-main"},
+    {"id": "w-shaft-out", "name": "Вентиляционный ствол", "from": "N8", "to": "S_out", "kind": "shaft",
+     "length": 570, "area": 50.0, "R": 0.0040, "district": "d-main", "fan_station": true}
+  ],
+  "fan_station": {
+    "branch": "w-shaft-out",
+    "start_time_s": 120,
+    "stop_rundown_s": 60,
+    "reverse_factor": 0.65,
+    "stopped_extra_R": 2.5,
+    "units": [
+      {"id": "fan-1", "name": "ГВУ №1 (рабочая)", "model": "ВЦД-31,5М2", "h0_pa": 6000, "h2_pa_s2m6": 0.0168,
+       "power_rated_kw": 1600, "efficiency": 0.87, "role": "main", "state": "running"},
+      {"id": "fan-2", "name": "ГВУ №2 (резервная)", "model": "ВЦД-31,5М2", "h0_pa": 6000, "h2_pa_s2m6": 0.0168,
+       "power_rated_kw": 1600, "efficiency": 0.87, "role": "reserve", "state": "stopped"}
+    ],
+    "source": "ГОСТ 11004-84, табл. 3 и каталог «Вентпром»: ВЦД-31,5М2, номинал 250 м3/с при 4950 Па, привод 1600 кВт, КПД 0,87; кривая аппроксимирована параболой h = h0 - h2*Q^2"
+  },
+  "sensors": [
+    {"id": "s-ch4-l1-face", "name": "Метан, лава 1-Ю (у комбайна)", "type": "CH4", "branch": "w-l1-face", "pos": 0.7},
+    {"id": "s-ch4-l1-ret",  "name": "Метан, исходящая струя лавы 1-Ю", "type": "CH4", "branch": "w-l1-ret", "pos": 0.15},
+    {"id": "s-ch4-l2-face", "name": "Метан, лава 2-С (у комбайна)", "type": "CH4", "branch": "w-l2-face", "pos": 0.7},
+    {"id": "s-ch4-l2-ret",  "name": "Метан, исходящая струя лавы 2-С", "type": "CH4", "branch": "w-l2-ret", "pos": 0.15},
+    {"id": "s-ch4-mine",    "name": "Метан, исходящая струя шахты", "type": "CH4", "branch": "w-ret-main", "pos": 0.9},
+    {"id": "s-co-main",     "name": "CO, главные откаточные штреки", "type": "CO", "branch": "w-main", "pos": 0.9},
+    {"id": "s-co-l1-conv",  "name": "CO, конвейерный штрек лавы 1-Ю", "type": "CO", "branch": "w-l1-conv", "pos": 0.9},
+    {"id": "s-co-l2-ret",   "name": "CO, вентиляционный штрек лавы 2-С", "type": "CO", "branch": "w-l2-ret", "pos": 0.2},
+    {"id": "s-co-mine",     "name": "CO, исходящая струя шахты", "type": "CO", "branch": "w-ret-main", "pos": 0.9},
+    {"id": "s-v-l1",        "name": "Скорость воздуха, лава 1-Ю", "type": "AIR", "branch": "w-l1-face", "pos": 0.5},
+    {"id": "s-v-l2",        "name": "Скорость воздуха, лава 2-С", "type": "AIR", "branch": "w-l2-face", "pos": 0.5}
+  ],
+  "brigades": [
+    {"id": "crew-l1",   "name": "Бригада лавы 1-Ю", "people": 9, "branch": "w-l1-face", "pos": 0.5},
+    {"id": "crew-l2",   "name": "Бригада лавы 2-С", "people": 8, "branch": "w-l2-face", "pos": 0.5},
+    {"id": "crew-conv", "name": "Звено конвейерщиков", "people": 3, "branch": "w-l1-conv", "pos": 0.8},
+    {"id": "crew-rep",  "name": "Звено ремонтников", "people": 4, "branch": "w-l2-ret", "pos": 0.6}
+  ],
+  "fire_sites": {
+    "fire-l1-conv": {"name": "Пожар на ленте конвейерного штрека лавы 1-Ю", "branch": "w-l1-conv", "pos": 0.55},
+    "fire-main":    {"name": "Пожар на конвейере главных откаточных штреков", "branch": "w-main", "pos": 0.35},
+    "fire-l2-ret":  {"name": "Пожар в вентиляционном штреке лавы 2-С", "branch": "w-l2-ret", "pos": 0.5}
+  },
+  "physics": {
+    "cell_length_m": 50,
+    "dispersion_m2s": 2.0,
+    "walk_speed_ms": 1.1,
+    "walk_speed_smoke_ms": 0.5,
+    "cage_time_s": 180,
+    "self_rescuer_min": 50,
+    "co_mask_on_ppm": 50,
+    "profile_start_min": 360,
+    "fire": {
+      "hrr_max_mw": 5.0,
+      "growth_s": 600,
+      "heat_of_combustion_mj_kg": 24.6,
+      "co_yield_kg_kg": 0.12,
+      "smoke_yield_kg_kg": 0.07,
+      "mass_extinction_m2_g": 8.7,
+      "throttle_factor": 2.0,
+      "heat_loss_per_s": 0.003
+    },
+    "co_spontaneous": {"branch": "w-l2-ret", "pos": 0.05, "co_m3min_max": 0.15, "ramp_s": 2400}
+  },
+  "limits": {
+    "ch4_face_pct": 2.0,
+    "ch4_district_return_pct": 1.0,
+    "ch4_mine_return_pct": 0.75,
+    "ch4_intake_pct": 0.5,
+    "ch4_explosive_lower_pct": 5.0,
+    "ch4_explosive_upper_pct": 15.0,
+    "co_mac_ppm": 17,
+    "co_alarm_ppm": 50,
+    "air_velocity_max_face_ms": 4.0,
+    "air_velocity_min_face_ms": 0.5,
+    "fan_reverse_max_s": 600,
+    "fan_reverse_min_share": 0.6,
+    "evacuation_max_min": 60,
+    "source": "Приказ МИР РК №351 от 30.12.2014 «Правила обеспечения промышленной безопасности для ОПО угольных шахт»: Приложение 4 (CH4), Приложение 5 (ПДК CO 0,0017%), Приложение 6 (скорости воздуха), п.136 (реверс ≤10 мин, ≥60%), п.150 (вывод людей), п.182 (АГЗ), п.8 (выход ≤1 ч)"
+  }
+}

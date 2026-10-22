@@ -1,43 +1,56 @@
-# <Team name>: a digital mine on OpenEgiz
+# Шахта «Арқа-1»: цифровой двойник вентиляции и газа на OpenEgiz
 
-> Team Repository of the contest “Digital Mine on OpenEgiz”. **Replace the contents of this file with the instructions for your Submission.** The AI Jury runs the Submission strictly by these instructions, from scratch, in the Judge Environment. Accepted languages: English, Kazakh, Russian.
+Командный репозиторий конкурса «Цифровой рудник на OpenEgiz», команда 087.
 
-> **Start with the Concept**, the first section of [SUBMISSION.md](SUBMISSION.md): the Team writes it before any code. What AI agents build from this Template without a Concept is the Default Solution, published on the [contest site](https://openegiz-contest.github.io/) as the low bar: a Submission that does not go beyond it gets low levels in the Rubric. AI agents read [AGENTS.md](AGENTS.md).
+Цифровой двойник вентиляции и газовой безопасности подземной угольной шахты, похожей на шахты Карагандинского бассейна. Он помогает диспетчеру шахты, инженеру по вентиляции и горноспасателям решить, **как управлять вентиляторами и когда выводить людей**: при отказе главного вентилятора, росте метана или CO и пожаре с распространением дыма. Концепция, модель, источники цифр и ограничения описаны в [SUBMISSION.md](SUBMISSION.md).
 
-## Running
+## Запуск
 
-Requirements (Docker, `make`, Windows/WSL2 setup) are in [OPENEGIZ.md](OPENEGIZ.md) / [OPENEGIZ.ru.md](OPENEGIZ.ru.md).
+Нужны Docker с Compose v2.20+, `git`, `make` и 6 ГБ памяти для Docker (подробности о платформе в [OPENEGIZ.ru.md](OPENEGIZ.ru.md)). Из корня репозитория:
 
 ```bash
-sudo apt install -y make   # if make is missing (clean Ubuntu)
-make up            # the OpenEgiz platform
-make example-mine  # the Example Mine: twins, simulator, dashboard
+sudo apt install -y make   # если make нет (чистая Ubuntu)
+make mine                  # платформа OpenEgiz + шахта «Арқа-1»
 ```
 
-Replace these commands with the commands of your Submission. The Submission must start by following these instructions without manual intervention (Rules, clause 6.4); downloading datasets and models and building are also listed here.
+`make mine` выполняет `make up` (Ditto, MQTT, Telegraf, InfluxDB, Grafana), затем собирает образ шахты из `team/vent/`, создаёт 35 двойников в Ditto, запускает сервис двойника и подключает дашборд. Первый запуск скачивает около 2,5 ГБ образов и занимает несколько минут. Наборы данных скачивать не нужно: недельный профиль метана уже лежит в репозитории (`team/vent/data/`, CC BY 4.0).
 
-## What to open
+Проверка физики модели и советника (13 тестов, платформа не нужна):
 
-- Grafana: the address and login are printed by `make up`.
-- <where to see the mine visualization, which dashboards>
+```bash
+make mine-test
+```
 
-## Repository contents
-
-| Path | Contents |
+| Команда | Что делает |
 |---|---|
-| `team/` | Directory for the Team's code. Using it is optional: any part may be changed, including the platform core |
-| `SUBMISSION.md` | Description of the Submission: **required** |
-| `presentation.pdf` | Presentation: **required**, in the repository root |
-| `AGENTS.md`, `CLAUDE.md` | Instructions for your AI agents (Codex, Claude Code and others read them automatically) |
-| `examples/mine/` | The Example Mine: shows how a digital mine is built on OpenEgiz. It is not a basis for the Submission |
-| `OPENEGIZ.md`, `OPENEGIZ.ru.md` | Documentation of the OpenEgiz platform v1.0.4 |
+| `make mine` | Запустить платформу и шахту; после этого `make up` и `make down` поднимают и останавливают её вместе с платформой |
+| `make mine-test` | Тесты модели: законы Кирхгофа, реверс ≥ 60 %, накопление метана, CO от пожара, решения советника |
+| `make mine-stop` | Остановить сервис двойника (двойники и данные остаются) |
+| `make smoke` | Сквозная проверка платформы |
+| `make clean` | Остановить и удалить все данные |
 
-The Submission is the `main` branch at the moment of the Freeze; other branches are not evaluated.
+## Что открыть
 
-## License
+- **Пульт диспетчера: http://localhost:8095/** — разрез шахты с метаном, CO, дымом и движением воздуха, кнопки сценариев «что если», управление вентиляторами, электроэнергией, регуляторами и выводом людей, советник с прогнозом на 60 минут.
+- **Grafana: http://localhost:3000/d/arqa-vent** → папка **Шахта Арқа-1** → дашборд «Шахта «Арқа-1»: вентиляция и газ». Просмотр открыт без входа; логин и пароль администратора печатает `make up`. Дашборд показывает KPI, рекомендацию советника, встроенный пульт и временные ряды из InfluxDB.
+- **Двойники:** Grafana → приложение **OpenEgiz** → **Twins**, пространство имён `kz.arqa`. Там же можно подать команду: в двойнике `kz.arqa:dispatch` записать в feature `command`, `properties.value` строку вида `fan_trip`, `fire:fire-main`, `fan_reverse`, `evacuate:all`, `reset`.
 
-The Submission is distributed under the MIT license, see [LICENSE](LICENSE). Copyright belongs to the Team: add the line `Copyright (c) 2026 <Team members>` to `LICENSE`.
+Как пройти сценарий за 3 минуты: откройте пульт, нажмите «Отказ главного вентилятора», поставьте скорость ×30 и смотрите, как в лавах растёт метан и срабатывает АГЗ. Советник предложит «Пустить ГВУ №2 и вывести людей». Нажмите «Выполнить» и смотрите, как воздух возвращается, метан выносится, а бригады идут к выходу. Затем нажмите «Сброс в норму» и запустите пожар в главных откаточных штреках: советник предложит реверс. Для пожара в вентиляционном штреке лавы 2-С он реверс не предлагает.
+
+## Содержимое репозитория
+
+| Путь | Что это |
+|---|---|
+| `team/vent/` | Шахта команды: модель, советник, сервис двойника, пульт, дашборд, данные, тесты. Подробности в [team/vent/README.md](team/vent/README.md) |
+| `SUBMISSION.md` | Описание работы: Концепция, модель, данные, ограничения |
+| `presentation.pdf` | Презентация |
+| `deploy/`, `scripts/`, `Makefile` | Платформа OpenEgiz v1.0.4. Изменения команды: цель `make mine`, папка дашборда команды в Grafana |
+| `examples/mine/` | Пример рудника организаторов (не используется) |
+
+## Лицензия
+
+MIT, см. [LICENSE](LICENSE). Профиль метана взят из набора Sikora & Wróbel, Mendeley Data (CC BY 4.0), см. [team/vent/data/README.md](team/vent/data/README.md).
 
 ---
 
-Platform: [aleka07/openegiz](https://github.com/aleka07/openegiz). If the platform was useful to you, support the project with a star on GitHub.
+Платформа: [aleka07/openegiz](https://github.com/aleka07/openegiz).

@@ -1,0 +1,53 @@
+# Mine «Арқа-1»: ventilation and gas twin, an overlay on
+# deploy/compose/docker-compose.yml. Started by `make mine` from the
+# repository root.
+
+services:
+  vent-setup:
+    build: ../../team/vent
+    image: openegiz/arqa-vent:local
+    restart: "no"
+    command: ["python", "setup_twins.py"]
+    environment:
+      DITTO_URL: http://ditto-nginx:80
+      DITTO_PASSWORD: ${DITTO_PASSWORD}
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # Same image as vent-setup, which builds it (see examples/mine/compose.yml
+  # for why only one service may carry `build:`).
+  vent-twin:
+    image: openegiz/arqa-vent:local
+    pull_policy: never
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      DITTO_URL: http://ditto-nginx:80
+      DITTO_PASSWORD: ${DITTO_PASSWORD}
+      SIM_SPEEDUP: ${VENT_SPEEDUP:-10}
+      HTTP_PORT: "8095"
+    ports:
+      - "${OPENEGIZ_BIND:-127.0.0.1}:${VENT_PORT:-8095}:8095"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8095/healthz', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      vent-setup:
+        condition: service_completed_successfully
+
+  grafana:
+    environment:
+      # The dashboard embeds the dispatcher's console in an HTML text panel.
+      GF_PANELS_DISABLE_SANITIZE_HTML: "true"
+      # Read-only viewing without a login, so the dashboard opens straight
+      # away; Grafana listens on 127.0.0.1 only (OPENEGIZ_BIND).
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ../../team/vent/grafana:/var/lib/grafana/team-dashboards:ro

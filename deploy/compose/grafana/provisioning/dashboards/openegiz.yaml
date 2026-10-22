@@ -14,3 +14,10 @@ providers:
     allowUiUpdates: true
     options:
       path: /var/lib/grafana/example-dashboards
+  # The Team's mine (team/vent/compose.yml mounts it); empty otherwise.
+  - name: team
+    folder: Шахта Арқа-1
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/team-dashboards

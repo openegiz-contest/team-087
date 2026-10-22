@@ -19,6 +19,8 @@ examples/ar-lamp/https_server.log
 deploy/compose/.env
 # Set by `make example-mine`: compose commands then include the mine overlay
 deploy/compose/.example-mine
+# Set by `make mine`: compose commands then include the Team's mine overlay
+deploy/compose/.team-mine
 
 __pycache__/
 *.pyc
